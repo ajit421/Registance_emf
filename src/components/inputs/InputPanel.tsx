@@ -1,6 +1,6 @@
 /* Sidebar: motor specification, winding configuration, then the stator inputs (generated from SCHEMA). */
 import { useState, type ReactNode } from 'react'
-import { ChevronDown, Clock, RotateCcw, Search } from 'lucide-react'
+import { ChevronDown, RotateCcw, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -10,7 +10,7 @@ import { ComputedField, NumberField } from '@/components/inputs/NumberField'
 import { WindingPicker } from '@/components/inputs/WindingPicker'
 import { useMotor } from '@/hooks/useMotor'
 import { changedKeys } from '@/lib/motor/io'
-import { SCHEMA, SPEC_OF_KEY, values, type SectionDef, type SpecSolve } from '@/lib/motor/schema'
+import { FIELDS, SCHEMA, SPEC_OF_KEY, usedBy, values, type SectionDef, type SpecSolve } from '@/lib/motor/schema'
 import type { MotorResult } from '@/lib/motor/compute'
 import { cn } from '@/lib/utils'
 import { useMotorStore } from '@/store/motor'
@@ -62,12 +62,12 @@ function Step({ n, title, onReset, forceOpen, children }: {
 }
 
 function Section({ g, n, R, query }: { g: SectionDef; n: number; R: MotorResult; query: string }) {
-  const { params } = useMotor()
+  const { params, winding } = useMotor()
   const resetSection = useMotorStore(s => s.resetSection)
   const p = values(params)
   const hit = (s: string) => !query || s.toLowerCase().includes(query)
-  const fields = g.fields.filter(f => hit(`${f.label} ${f.key} ${f.unit}`))
-  const computed = (g.computed ?? []).filter(c => hit(c.label))
+  const fields = g.fields.filter(f => usedBy(f, winding) && hit(`${f.label} ${f.key} ${f.unit}`))
+  const computed = (g.computed ?? []).filter(c => usedBy(c, winding) && hit(c.label))
   if (!fields.length && !computed.length) return null
 
   return (
@@ -82,7 +82,7 @@ function Section({ g, n, R, query }: { g: SectionDef; n: number; R: MotorResult;
 export function InputPanel() {
   const { params, winding, R } = useMotor()
   const [q, setQ] = useState('')
-  const n = changedKeys(params).length
+  const n = changedKeys(params).filter(k => usedBy(FIELDS[k], winding)).length
   const query = q.trim().toLowerCase()
 
   return (
@@ -103,14 +103,8 @@ export function InputPanel() {
           </Step>
         )}
 
-        {winding === 'distributed' && STATOR.map((g, i) => <Section key={g.id} g={g} n={i + 3} R={R} query={query} />)}
+        {winding && STATOR.map((g, i) => <Section key={g.id} g={g} n={i + 3} R={R} query={query} />)}
 
-        {!query && winding === 'concentrated' && (
-          <div className="m-4 flex gap-2.5 rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-            <Clock className="mt-0.5 size-4 shrink-0" />
-            Concentrated-winding inputs and calculations are not available yet. Choose Distributed to design a stator now.
-          </div>
-        )}
         {!query && winding === null && (
           <p className="m-4 text-xs text-muted-foreground">Choose a winding configuration above to enter the stator dimensions.</p>
         )}

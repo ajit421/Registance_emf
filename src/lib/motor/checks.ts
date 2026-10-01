@@ -33,8 +33,15 @@ export function designChecks(R: MotorResult): Check[] {
       ? { level: 'ok', text: `Narrowest copper feature is ${num(minW, 3)} mm, above the common 0.127 mm (5 mil) PCB limit.` }
       : { level: 'warn', text: `Narrowest copper feature is ${num(minW, 3)} mm, below the common 0.127 mm (5 mil) PCB limit.` })
   }
-  // poles = slots / 3 and slots per phase = poles / 2, so both are whole only for a multiple of 6 slots
   const evenPoles = Number.isInteger(S.poles) && S.poles % 2 === 0
+  if (A.cw) {
+    // slot and layer divisibility are already engine warnings
+    out.push(evenPoles
+      ? { level: 'ok', text: `${num(S.slots, 0)} slots / ${num(S.poles, 0)} poles: ${num(A.cw.Nsp, 3)} slots per pole, ${num(A.mult, 2)} coils per phase, winding factor ${num(A.cw.kw, 3)}.` }
+      : { level: 'warn', text: `Poles (${num(S.poles, 2)}) should be an even whole number.` })
+    return out
+  }
+  // poles = slots / 3 and slots per phase = poles / 2, so both are whole only for a multiple of 6 slots
   out.push(evenPoles
     ? { level: 'ok', text: `${num(S.slots, 0)} slots give ${num(S.poles, 0)} poles and ${num(ed.sides, 0)} slots per phase.` }
     : { level: 'warn', text: `${num(S.slots, 0)} slots give ${num(S.poles, 2)} poles; use a multiple of 6 slots so poles and slots per phase are whole numbers.` })

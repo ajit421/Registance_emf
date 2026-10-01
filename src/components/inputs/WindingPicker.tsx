@@ -24,9 +24,9 @@ function ConcentratedIcon() {
   )
 }
 
-const OPTIONS: { id: Winding; title: string; text: string; Icon: () => React.JSX.Element; soon?: boolean }[] = [
+const OPTIONS: { id: Winding; title: string; text: string; Icon: () => React.JSX.Element }[] = [
   { id: 'distributed', title: 'Distributed', text: 'Coils span several slots and overlap', Icon: DistributedIcon },
-  { id: 'concentrated', title: 'Concentrated', text: 'Each coil sits around a single tooth', Icon: ConcentratedIcon, soon: true },
+  { id: 'concentrated', title: 'Concentrated', text: 'Each coil sits around a single tooth', Icon: ConcentratedIcon },
 ]
 
 export function WindingPicker({ className }: { className?: string }) {
@@ -34,7 +34,7 @@ export function WindingPicker({ className }: { className?: string }) {
   const setWinding = useMotorStore(s => s.setWinding)
   return (
     <div role="radiogroup" aria-label="Winding configuration" className={cn('grid grid-cols-2 gap-2', className)}>
-      {OPTIONS.map(({ id, title, text, Icon, soon }) => {
+      {OPTIONS.map(({ id, title, text, Icon }) => {
         const on = winding === id
         return (
           <button key={id} type="button" role="radio" aria-checked={on} onClick={() => setWinding(id)}
@@ -48,10 +48,7 @@ export function WindingPicker({ className }: { className?: string }) {
               {on && <Check className="size-3" strokeWidth={3} />}
             </span>
             <Icon />
-            <span className="flex items-center gap-1.5 text-sm font-medium">
-              {title}
-              {soon && <span className="rounded bg-muted px-1 py-px text-[0.6rem] font-normal text-muted-foreground">soon</span>}
-            </span>
+            <span className="text-sm font-medium">{title}</span>
             <span className="text-[0.7rem] leading-snug text-muted-foreground">{text}</span>
           </button>
         )

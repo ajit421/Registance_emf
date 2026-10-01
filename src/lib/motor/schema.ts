@@ -2,7 +2,7 @@
  * Every user input is declared once here; the sidebar, the advanced settings sheet,
  * import/export and validation are all generated from it.
  * Values that follow from other inputs (poles, slots per phase, conductor length, …)
- * are not inputs: see derive.ts.
+ * are not inputs: see derive.ts. Fields with `windings` only apply to that configuration.
  * All lengths are in mm (converted to metres inside the formulas), copper thickness in µm.
  */
 import type { MotorResult } from './compute'
@@ -24,6 +24,8 @@ export interface FieldDef {
   sci?: boolean
   /** live note shown under the input */
   hint?: (r: MotorResult) => string
+  /** only used by these winding configurations (all when omitted) */
+  windings?: Winding[]
 }
 
 /** Read-only value shown among a section's inputs. */
@@ -33,6 +35,7 @@ export interface ComputedDef {
   unit: string
   get: (r: MotorResult) => number
   d: number
+  windings?: Winding[]
 }
 
 export interface SectionDef {
@@ -45,6 +48,8 @@ export interface SectionDef {
 }
 
 const DEG = Math.PI / 180
+/** up to 4 significant digits, no trailing zeros */
+const short = (v: number) => String(+v.toPrecision(4))
 
 export const SCHEMA: SectionDef[] = [
   {
@@ -54,9 +59,10 @@ export const SCHEMA: SectionDef[] = [
       { key: 'spec_rpm', label: 'Speed', unit: 'rpm', def: 350, step: 10, min: 0 },
       { key: 'spec_T', label: 'Torque', unit: 'N·m', def: 22.5 / (2 * Math.PI * 350 / 60), step: 0.01, min: 0 },
       { key: 'spec_slots', label: 'Slots', unit: '', def: 90, step: 3, int: true, min: 1 },
+      { key: 'spec_poles', label: 'Poles', unit: '', def: 30, step: 2, int: true, min: 2, windings: ['concentrated'] },
     ],
     computed: [
-      { key: 'poles', label: 'Poles (slots / 3)', unit: '', get: r => r.S.poles, d: 2 },
+      { key: 'poles', label: 'Poles (slots / 3)', unit: '', get: r => r.S.poles, d: 2, windings: ['distributed'] },
     ],
   },
   {
@@ -77,23 +83,34 @@ export const SCHEMA: SectionDef[] = [
         hint: r => `Average gap ${num(r.A.gap_deg * DEG * r.A.r_mean_turns, 3)} mm · average trace width ${num(r.A.trace_width_radial_avg, 3)} mm`,
       },
       { key: 'gap_end', label: 'Trace gap, end side', unit: 'mm', def: 0.2, step: 0.05, min: 0 },
-      { key: 'series_stacks', label: 'Series layer stacks', unit: '', def: 5, step: 1, int: true, min: 1 },
+      { key: 'series_stacks', label: 'Series layer stacks', unit: '', def: 5, step: 1, int: true, min: 1, windings: ['distributed'] },
       {
-        key: 'total_layer_stacks', label: 'Parallel layer stacks', unit: '', def: 1, step: 1, int: true, min: 1,
+        key: 'total_layer_stacks', label: 'Parallel layer stacks', unit: '', def: 1, step: 1, int: true, min: 1, windings: ['distributed'],
         hint: r => `Total layers = ${r.A.series_stacks} series × ${r.A.layer_stack} per stack × ${r.A.total_layer_stacks} parallel = ${totalLayers(r)}`,
+      },
+      { key: 'cw_total_layers', label: 'Total layers', unit: '', def: 18, step: 1, int: true, min: 1, windings: ['concentrated'] },
+      {
+        key: 'cw_series_group', label: 'Layers in series per branch', unit: '', def: 3, step: 1, int: true, min: 1, windings: ['concentrated'],
+        hint: r => r.A.cw
+          ? `${short(r.A.cw.branches)} parallel branches (${r.A.cw.total_layers} / ${r.A.cw.series_group_size}) · stack factor ${short(r.A.cw.layer_factor)} · ${short(r.A.cw.turns_per_coil)} turns per coil`
+          : '',
       },
       { key: 'min_trace_IR', label: 'Min trace width at inner radius', unit: 'mm', def: 0.2, step: 0.01, min: 0 },
       { key: 'copper_thickness', label: 'Copper thickness', unit: 'µm', def: 140, step: 5, min: 0 },
       { key: 'rho', label: 'Copper resistivity ρ', unit: 'Ω·m', def: 1.72e-8, step: 1e-10, sci: true, min: 0 },
-      { key: 'via_resistance', label: 'Via resistance', unit: 'Ω', def: 0.3, step: 0.01, min: 0 },
+      { key: 'via_resistance', label: 'Via resistance', unit: 'Ω', def: 0.3, step: 0.01, min: 0, windings: ['distributed'] },
+      { key: 'cw_via_resistance', label: 'Via & connection resistance', unit: 'Ω', def: 0, step: 0.001, min: 0, windings: ['concentrated'] },
     ],
   },
   {
     id: 'C', title: 'EMF & performance',
     fields: [
       { key: 'emf_Bgap', label: 'Air-gap flux density', unit: 'T', def: 0.4, step: 0.01 },
-      { key: 'emf_Kw', label: 'Winding factor Kw', unit: '', def: 1, step: 0.01 },
+      { key: 'emf_Kw', label: 'Winding factor Kw', unit: '', def: 1, step: 0.01, windings: ['distributed'] },
       { key: 'emf_etaESC', label: 'ESC efficiency', unit: '', def: 0.95, step: 0.01 },
+    ],
+    computed: [
+      { key: 'cw_kw', label: 'Winding factor Kw', unit: '', get: r => r.A.cw?.kw ?? NaN, d: 4, windings: ['concentrated'] },
     ],
   },
   {
@@ -112,12 +129,12 @@ export const SCHEMA: SectionDef[] = [
   {
     id: 'X', title: 'Advanced', advanced: true,
     fields: [
-      { key: 'ewMult', label: 'End-winding span (× coil angle)', unit: '×', def: 3, step: 0.5 },
-      { key: 'layer_stack', label: 'Layers per stack (in parallel)', unit: '', def: 3, step: 1, int: true, min: 1 },
-      { key: 'layers', label: 'Layers', unit: '', def: 1, step: 1, int: true, min: 1 },
-      { key: 'parInsetIn', label: 'Parallel zone start (Rin + …)', unit: 'mm', def: 1, step: 0.5 },
-      { key: 'parInsetOut', label: 'Parallel zone end (Rout − …)', unit: 'mm', def: 1, step: 0.5 },
-      { key: 'segments_radial', label: 'Segments per radial sub-section', unit: '', def: 1, step: 1, int: true, min: 1, max: 200 },
+      { key: 'ewMult', label: 'End-winding span (× coil angle)', unit: '×', def: 3, step: 0.5, windings: ['distributed'] },
+      { key: 'layer_stack', label: 'Layers per stack (in parallel)', unit: '', def: 3, step: 1, int: true, min: 1, windings: ['distributed'] },
+      { key: 'layers', label: 'Layers', unit: '', def: 1, step: 1, int: true, min: 1, windings: ['distributed'] },
+      { key: 'parInsetIn', label: 'Parallel zone start (Rin + …)', unit: 'mm', def: 1, step: 0.5, windings: ['distributed'] },
+      { key: 'parInsetOut', label: 'Parallel zone end (Rout − …)', unit: 'mm', def: 1, step: 0.5, windings: ['distributed'] },
+      { key: 'segments_radial', label: 'Segments per radial sub-section', unit: '', def: 1, step: 1, int: true, min: 1, max: 200, windings: ['distributed'] },
       { key: 'el_m', label: 'Phases', unit: '', def: 3, step: 1, int: true, min: 1 },
     ],
   },
@@ -143,6 +160,9 @@ export const SPEC_KEYS: Record<SpecSolve, string> = { P: 'spec_P', rpm: 'spec_rp
 export const SPEC_OF_KEY: Record<string, SpecSolve> = { spec_P: 'P', spec_rpm: 'rpm', spec_T: 'T' }
 export const isSpecSolve = (v: unknown): v is SpecSolve => v === 'T' || v === 'P' || v === 'rpm'
 export const isWinding = (v: unknown): v is Winding => v === 'distributed' || v === 'concentrated'
+
+/** True when a field or computed value belongs to the chosen winding configuration. */
+export const usedBy = (x: { windings?: Winding[] }, w: Winding | null) => !x.windings || (w !== null && x.windings.includes(w))
 
 /** True when v is acceptable for field f (finite and within its limits). */
 export const inRange = (f: FieldDef, v: number) =>

@@ -79,6 +79,12 @@ export function toCSV(p: MotorParams, winding: Winding | null, R: MotorResult): 
     ['D', 'kd', el.kd, ''], ['D', 'Present Ac', el.Ac_present, 'A/m'], ['D', 'Required Ac', el.Ac_required, 'A/m'],
     ['D', 'Present / required', el.ratio, ''],
   ]
+  if (A.cw) out.push(
+    ['A', 'Slots per pole Nsp', A.cw.Nsp, ''], ['A', 'Coils per phase', A.mult, ''], ['A', 'Winding factor Kw', A.cw.kw, ''],
+    ['A', 'Trace pitch', A.cw.pitch_deg, 'deg'], ['A', 'Turns per coil', A.cw.turns_per_coil, ''],
+    ['A', 'Parallel branches', A.cw.branches, ''], ['A', 'Stack factor', A.cw.layer_factor, ''],
+    ['A', 'One coil, full layer stack', A.R_coil_single_layer, 'Ohm'],
+  )
   out.forEach(r => rows.push([`result ${r[0]}`, r[1], r[2], r[3]]))
   return rows.map(r => r.map(v => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v)).join(',')).join('\n')
 }

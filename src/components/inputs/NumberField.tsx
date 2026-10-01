@@ -29,6 +29,7 @@ export function NumberField({ f, value, solved, R }: { f: FieldDef; value: numbe
   const invalid = draft !== null && (draft.trim() === '' || !inRange(f, Number(draft)))
   const changed = !same(value, DEF[f.key])
   const id = `in-${f.key}`
+  const hint = f.hint?.(R)
   const range = f.max !== undefined ? `Allowed ${f.min ?? '−∞'} – ${f.max}` : f.min !== undefined ? `Must be ≥ ${f.min}` : 'Enter a number'
 
   return (
@@ -61,7 +62,7 @@ export function NumberField({ f, value, solved, R }: { f: FieldDef; value: numbe
         {f.unit && <span className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-[0.65rem] text-muted-foreground">{f.unit}</span>}
       </div>
       {invalid && <p className="col-span-2 mt-0.5 text-right text-[0.7rem] text-bad">{range}</p>}
-      {f.hint && <Hint>{f.hint(R)}</Hint>}
+      {hint && <Hint>{hint}</Hint>}
     </div>
   )
 }

@@ -24,6 +24,19 @@ export function reportText(r: MotorResult): string {
   L.push(`Torque (P / omega)      : ${f(S.T, 4)} Nm${c('T')}`)
   L.push(`Slots / Poles           : ${Math.round(S.slots)} / ${Math.round(S.poles)}`)
   L.push('', '=========== WINDING / RESISTANCE (selected) ===========')
+  // concentrated only; the distributed report layout is kept as recorded in the reference fixture
+  if (A.cw) {
+    L.push(`Winding                 : concentrated (tooth-wound)`)
+    L.push(`Slots per pole (Nsp)    : ${f(A.cw.Nsp, 4)}`)
+    L.push(`Coils per phase         : ${f(A.mult, 2)}`)
+    L.push(`Winding factor Kw       : ${f(A.cw.kw, 4)}  (kp ${f(A.cw.kp, 4)} x kd ${f(A.cw.kd, 4)})`)
+    L.push(`Layers total / series   : ${A.cw.total_layers} / ${A.cw.series_group_size}  (${f(A.cw.branches, 2)} parallel branches, stack factor ${f(A.cw.layer_factor, 4)})`)
+    L.push(`Trace pitch / width IR  : ${f(A.cw.pitch_deg, 4)} deg / ${f(A.trace_width_radial_atIR, 4)} mm`)
+    L.push(`Turns per coil / phase  : ${f(A.cw.turns_per_coil, 0)} / ${f(A.total_turns, 0)}`)
+    L.push(`One coil, full stack    : ${f(A.R_coil_single_layer, 6)} Ohm`)
+    L.push(`Via & connections       : ${f(A.via_resistance, 6)} Ohm`)
+    L.push(`Phase resistance        : ${f(A.R_stack_total, 6)} Ohm`)
+  }
   L.push(`Average radial trace width (at r = ${f(A.r_mean_turns, 2)} mm) : ${f(A.trace_width_radial_avg, 4)} mm`)
   L.push(`Trace width at IR (r = ${f(A.IR, 2)} mm)             : ${f(A.trace_width_radial_atIR, 4)} mm`)
   L.push(`Total radial resistance                     : ${f(A.R_radial_total, 4)} Ohm`)

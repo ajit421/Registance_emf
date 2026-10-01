@@ -32,6 +32,7 @@ export interface Turn {
   top_arc: number
   bottom_arc: number
   R_single_in: number
+  /** parallel part of the radial leg; for a concentrated winding the whole leg, one layer */
   R_parallel: number
   R_single_out: number
   len_single: number
@@ -40,6 +41,28 @@ export interface Turn {
   R_top: number
   R_bottom: number
 }
+
+/** Extra values of a concentrated (tooth-wound) winding. */
+export interface ConcentratedInfo {
+  poles: number
+  /** slots per pole */
+  Nsp: number
+  total_layers: number
+  series_group_size: number
+  branches: number
+  /** series_group_size² / total_layers: one-layer resistance × this = stack resistance */
+  layer_factor: number
+  /** angular pitch of one radial trace = slot pitch / (2 × turns) [deg] */
+  pitch_deg: number
+  /** turns in series per coil = turns per layer × layers in series */
+  turns_per_coil: number
+  /** winding factor (pitch × distribution), NaN for an unbalanced slot / pole combination */
+  kw: number
+  kp: number
+  kd: number
+}
+
+export type WindingResult = MotorResult['A']
 
 export interface MotorResult {
   S: Spec
@@ -57,6 +80,8 @@ export interface MotorResult {
     r_mean_turns: number; trace_width_radial_avg: number; R_endwinding_total: number
     series_stacks: number; total_layer_stacks: number; layer_stack: number; segments_radial: number
     via_resistance: number; min_trace_IR: number; traceOk: boolean
+    /** only for a concentrated winding */
+    cw?: ConcentratedInfo
   }
   ed: {
     tw: number; Bz: number; th: number; Bphi: number; rpm: number; poles: number
@@ -89,16 +114,25 @@ export function resolveSpec(params: MotorParams): Spec {
   return { solve, P, rpm, T, omega: w(rpm), slots: p.spec_slots, poles: p.spec_poles }
 }
 
-export function compute(params: MotorParams): MotorResult {
-  const p = values(params)
-  const warnings: string[] = []
-
-  // ===== SPEC =====
+/** Spec plus the warning when it cannot be solved. */
+export function specWithCheck(params: MotorParams, warnings: string[]): Spec {
   const S = resolveSpec(params)
   if (!(Number.isFinite(S.P) && Number.isFinite(S.rpm) && Number.isFinite(S.T)) || S.rpm <= 0 || S.T <= 0)
     warnings.push('Motor specification is not solvable: power, speed and torque must all be > 0.')
+  return S
+}
 
-  // ===== A) WINDING GEOMETRY + RESISTANCE =====
+/** Distributed winding: full design (A → D). */
+export function compute(params: MotorParams): MotorResult {
+  const p = values(params)
+  const warnings: string[] = []
+  const S = specWithCheck(params, warnings)
+  const A = distributedWinding(p, S, warnings)
+  return { S, A, ...performance(p, S, A, warnings), warnings }
+}
+
+/** A) Distributed winding geometry + resistance. */
+function distributedWinding(p: Record<string, number>, S: Spec, warnings: string[]): WindingResult {
   const ORS = p.ORS, OR = ORS + p.dOR, IRS = p.IRS, IR = IRS - p.dIR
   const slots = S.slots
   const theta_coil_deg = 360 / slots
@@ -191,7 +225,7 @@ export function compute(params: MotorParams): MotorResult {
   const trace_width_radial_avg = net_trace_angle_rad * r_mean_turns
   const R_endwinding_total = R_top_total + R_bottom_total
 
-  const A: MotorResult['A'] = {
+  return {
     ORS, OR, IRS, IR, slots, theta_coil_deg, ew_angle_deg, turns, gap_deg, per_turn_angle_deg,
     net_trace_angle_deg, net_trace_angle_rad, trace_width_radial_atIR, top_ew_thickness,
     bottom_ew_thickness, top_pitch, bottom_pitch, par_r_start, par_r_end, perTurn: T,
@@ -202,6 +236,12 @@ export function compute(params: MotorParams): MotorResult {
     layer_stack, segments_radial, via_resistance, min_trace_IR: p.min_trace_IR,
     traceOk: trace_width_radial_atIR >= p.min_trace_IR,
   }
+}
+
+/** B) eddy loss, C) EMF / performance, M) magnets and D) electric loading, for any winding A. */
+export function performance(p: Record<string, number>, S: Spec, A: WindingResult, warnings: string[]): Pick<MotorResult, 'ed' | 'emf' | 'mag' | 'el'> {
+  const { ORS, IRS, trace_width_radial_avg, total_turns, R_stack_total } = A
+  const { copper_thickness, rho, slots_per_phase } = p
 
   // ===== B) EDDY CURRENT LOSS =====
   const tw = trace_width_radial_avg, th = copper_thickness * 1e-3
@@ -252,5 +292,5 @@ export function compute(params: MotorParams): MotorResult {
   if (!Number.isFinite(R_stack_total)) warnings.push('Phase resistance is not finite — check the winding inputs.')
   if (eta < 0 || eta > 1 || !Number.isFinite(eta)) warnings.push('Efficiency is outside 0–100 % — check the inputs.')
 
-  return { S, A, ed, emf, mag, el, warnings }
+  return { ed, emf, mag, el }
 }

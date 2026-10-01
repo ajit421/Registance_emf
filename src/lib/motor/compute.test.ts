@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { compute } from './compute'
-import { derive, evaluate } from './derive'
+import { derive, deriveConcentrated, evaluate } from './derive'
 import { inputsObject, parseImport, readWinding, reportExport, sanitize, shareDiff, encodeLink, toCSV } from './io'
 import { reportText } from './report'
 import { defaults, type MotorParams } from './schema'
@@ -32,6 +32,71 @@ describe('derived inputs (distributed winding)', () => {
     expect(now.emf.Ef).toBeCloseTo(old.emf.Ef, 10)
     expect(now.emf.eta).toBeCloseTo(old.emf.eta, 12)
     expect(now.emf.phi).toBeCloseTo(old.emf.phi * 9 / 15, 15)
+  })
+})
+
+/* Concentrated winding: values from an independent reference translation of the model
+ * (the same steps as the Octave cross-check script). */
+describe('concentrated winding', () => {
+  const close = (a: number, b: number) => expect(Math.abs(a - b)).toBeLessThanOrEqual(1e-12 * Math.max(1, Math.abs(b)))
+  const run = (over: Partial<Record<string, number>>) => evaluate({
+    ...defaults(), spec_slots: 12, spec_poles: 10, ORS: 70, IRS: 50, ew_band: 5, turns: 5, gap_radial: 0.3, gap_end: 0.2,
+    copper_thickness: 210, rho: 1.92e-8, cw_total_layers: 18, cw_series_group: 3, cw_via_resistance: 0, ...over,
+  } as MotorParams, 'concentrated')
+
+  it('12 slots / 10 poles, 18 layers in series groups of 3', () => {
+    const { A, warnings } = run({})
+    expect(warnings).toEqual([])
+    expect(A.cw).toMatchObject({ Nsp: 1.2, branches: 6, layer_factor: 0.5, pitch_deg: 3, turns_per_coil: 15 })
+    close(A.net_trace_angle_deg, 2.618028136579451)
+    ;[0.0009937149185407163, 0.000923116700615819, 0.0008530786655155458, 0.000783551747020405, 0.0007144888283286306]
+      .forEach((v, i) => close(A.perTurn[i].R_parallel, v))
+    close(A.R_radial_coil, 0.004267950860021116)
+    close(A.R_top_coil, 0.005490307161273591)
+    close(A.R_bottom_coil, 0.003485671848982961)
+    close(A.R_coil_single_layer, 0.01324392987027767)
+    close(A.R_stack_total, 0.05297571948111068)
+    close(A.trace_width_radial_avg, 2.7415926535897928)
+    expect(A.total_turns).toBe(60)
+    close(A.cw!.kw, 0.9330127018922195)
+  })
+
+  it('36 slots / 30 poles, 12 layers in groups of 4, with via resistance', () => {
+    const { A } = run({ spec_slots: 36, spec_poles: 30, cw_total_layers: 12, cw_series_group: 4, turns: 4, cw_via_resistance: 0.01 })
+    close(A.R_radial_coil, 0.027460758013662448)
+    close(A.R_top_coil, 0.002973882738890219)
+    close(A.R_bottom_coil, 0.0018892931904762923)
+    close(A.R_stack_total, 0.3978872073163475)
+    expect(A.total_turns).toBe(192)
+  })
+
+  it('fits each coil inside one slot pitch, legs two trace pitches apart per turn', () => {
+    const { A } = run({})
+    const outerEdge = A.perTurn[0].ew_angle_deg / 2 + A.net_trace_angle_deg / 2
+    close(outerEdge + A.gap_deg / 2, A.theta_coil_deg / 2)
+    close(A.perTurn[0].ew_angle_deg - A.perTurn[1].ew_angle_deg, 2 * A.per_turn_angle_deg)
+  })
+
+  it('calculates the winding factor from the slot / pole combination', () => {
+    close(run({}).emf.Kw, 0.9330127018922195)
+    close(run({ spec_poles: 8 }).emf.Kw, 0.8660254037844386)
+    expect(run({ spec_poles: 12 }).warnings.join(' ')).toMatch(/cannot form a balanced/)
+  })
+
+  it('feeds the shared EMF, eddy and loading steps', () => {
+    const d = deriveConcentrated({ ...defaults(), spec_slots: 12, spec_poles: 10 })
+    expect(d.emf_pp).toBe(5)
+    expect(d.slots_per_phase).toBe(4)
+    expect(d.ed_paths).toBe(6)
+    const R = run({})
+    expect(R.emf.R).toBe(R.A.R_stack_total)
+    expect(R.emf.Nph).toBe(60)
+    expect(R.ed.f).toBeCloseTo(350 * 10 / 120, 12)
+  })
+
+  it('warns when the layers or slots do not divide evenly', () => {
+    expect(run({ cw_total_layers: 10 }).warnings.join(' ')).toMatch(/not evenly divisible/)
+    expect(run({ spec_slots: 13 }).warnings.join(' ')).toMatch(/not divisible by 3/)
   })
 })
 

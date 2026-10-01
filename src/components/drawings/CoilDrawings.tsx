@@ -38,13 +38,17 @@ export function CoilDrawing({ A, active, onHover }: {
   const pad = dim * 0.05, fs = dim * 0.03, lw = dim * 0.0025
   const vb = [minX - pad - fs * 7, minY - pad, (maxX - minX) + 2 * pad + fs * 14, (maxY - minY) + 2 * pad]
 
+  // a concentrated winding has its branches tied along the whole leg, so no separate parallel zone
+  const zone = !A.cw
   const refs = [
     { r: A.OR, t: `OR ${num(A.OR, 1)}`, cls: 'stroke-muted-foreground', side: 1, dash: undefined },
     { r: A.ORS, t: `ORS ${num(A.ORS, 1)}`, cls: 'stroke-muted-foreground', side: 1, dash: `${lw * 4} ${lw * 3}` },
     { r: A.IRS, t: `IRS ${num(A.IRS, 1)}`, cls: 'stroke-muted-foreground', side: 1, dash: `${lw * 4} ${lw * 3}` },
     { r: A.IR, t: `IR ${num(A.IR, 1)}`, cls: 'stroke-muted-foreground', side: 1, dash: undefined },
-    { r: A.par_r_end, t: `‖ ${num(A.par_r_end, 1)}`, cls: 'stroke-chart-3', side: -1, dash: `${lw * 2} ${lw * 2}` },
-    { r: A.par_r_start, t: `‖ ${num(A.par_r_start, 1)}`, cls: 'stroke-chart-3', side: -1, dash: `${lw * 2} ${lw * 2}` },
+    ...(zone ? [
+      { r: A.par_r_end, t: `‖ ${num(A.par_r_end, 1)}`, cls: 'stroke-chart-3', side: -1, dash: `${lw * 2} ${lw * 2}` },
+      { r: A.par_r_start, t: `‖ ${num(A.par_r_start, 1)}`, cls: 'stroke-chart-3', side: -1, dash: `${lw * 2} ${lw * 2}` },
+    ] : []),
   ]
   const topT = Math.max(A.top_ew_thickness, 0.05), botT = Math.max(A.bottom_ew_thickness, 0.05)
 
@@ -52,7 +56,7 @@ export function CoilDrawing({ A, active, onHover }: {
     <svg viewBox={vb.map(v => v.toFixed(3)).join(' ')} className="h-auto w-full" role="img" aria-label={`One coil with ${A.turns} turns`}
       onMouseLeave={() => onHover(null)}>
       <path d={sector(A.IR, A.OR, -hmax, hmax)} className="fill-muted" />
-      <path d={sector(A.par_r_start, A.par_r_end, -hmax, hmax)} className="fill-chart-3/15" />
+      {zone && <path d={sector(A.par_r_start, A.par_r_end, -hmax, hmax)} className="fill-chart-3/15" />}
       {refs.map(o => {
         const [x, y] = P(o.r, o.side * hmax)
         return (

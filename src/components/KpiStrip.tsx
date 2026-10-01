@@ -1,7 +1,7 @@
 /* Headline results with the change against the default design. */
 import { ArrowDownRight, ArrowUpRight } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { baseline, useMotor } from '@/hooks/useMotor'
+import { baselines, useMotor } from '@/hooks/useMotor'
 import { same } from '@/lib/motor/io'
 import { num, pct } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -9,11 +9,11 @@ import { cn } from '@/lib/utils'
 interface Kpi { label: string; v: number; b: number; unit: string; d: number; better?: 1 | -1; color: string; sub: string }
 
 export function KpiStrip() {
-  const { R } = useMotor()
-  const { A, emf, el } = R, B = baseline
+  const { R, winding } = useMotor()
+  const { A, emf, el } = R, B = baselines[winding ?? 'distributed']
   const items: Kpi[] = [
     { label: 'Motor efficiency', v: emf.eta * 100, b: B.emf.eta * 100, unit: '%', d: 2, better: 1, color: 'var(--good)', sub: `Overall with ESC ${pct(emf.etaAll)} %` },
-    { label: 'Phase resistance', v: A.R_stack_total, b: B.A.R_stack_total, unit: 'Ω', d: 3, better: -1, color: 'var(--chart-1)', sub: `${A.total_turns} turns in series path` },
+    { label: 'Phase resistance', v: A.R_stack_total, b: B.A.R_stack_total, unit: 'Ω', d: A.R_stack_total < 1 ? 4 : 3, better: -1, color: 'var(--chart-1)', sub: `${A.total_turns} turns in series path` },
     { label: 'Back-EMF', v: emf.Ef, b: B.emf.Ef, unit: 'V', d: 2, color: 'var(--chart-2)', sub: `Terminal ${num(emf.Vterm, 2)} V` },
     { label: 'Total loss', v: emf.Ploss, b: B.emf.Ploss, unit: 'W', d: 3, better: -1, color: 'var(--bad)', sub: `Cu ${num(emf.Pcu, 2)} W · Eddy ${num(emf.Peddy, 2)} W` },
     { label: 'Torque', v: emf.T, b: B.emf.T, unit: 'N·m', d: 3, color: 'var(--chart-4)', sub: `${num(emf.P, 1)} W at ${num(emf.rpm, 0)} rpm` },

@@ -70,6 +70,10 @@ function ResultCard({ c, open, onOpenChange }: { c: CardDef; open: boolean; onOp
 
 function CoilDetails({ A }: { A: MotorResult['A'] }) {
   const [active, setActive] = useState<number | null>(null)
+  const cw = !!A.cw
+  const heads = cw
+    ? ['Turn', 'Rin mm', 'Rout mm', 'Radial mm', 'EW angle °', 'Top arc mm', 'Bottom arc mm', 'R leg 1 layer mΩ', 'R leg stack mΩ', 'R top mΩ', 'R bottom mΩ']
+    : ['Turn', 'Rin mm', 'Rout mm', 'Radial mm', 'Parallel mm', 'EW angle °', 'Top arc mm', 'Bottom arc mm', 'R leg mΩ', 'R top mΩ', 'R bottom mΩ']
   return (
     <div className="space-y-5">
       <div className="grid items-center gap-6 md:grid-cols-[1fr_13rem]">
@@ -82,8 +86,7 @@ function CoilDetails({ A }: { A: MotorResult['A'] }) {
       <Table className="num font-mono text-xs">
         <TableHeader>
           <TableRow>
-            {['Turn', 'Rin mm', 'Rout mm', 'Radial mm', 'Parallel mm', 'EW angle °', 'Top arc mm', 'Bottom arc mm', 'R leg mΩ', 'R top mΩ', 'R bottom mΩ']
-              .map(h => <TableHead key={h} className="font-sans">{h}</TableHead>)}
+            {heads.map(h => <TableHead key={h} className="font-sans">{h}</TableHead>)}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -91,17 +94,17 @@ function CoilDetails({ A }: { A: MotorResult['A'] }) {
             <TableRow key={t.k} onMouseEnter={() => setActive(t.k)} onMouseLeave={() => setActive(null)} className={cn(active === t.k && 'bg-accent')}>
               <TableCell><i className="mr-2 inline-block size-2.5 rounded-sm" style={{ background: turnColor(t.k) }} />{t.k}</TableCell>
               <TableCell>{num(t.Rin, 3)}</TableCell><TableCell>{num(t.Rout, 3)}</TableCell><TableCell>{num(t.radial_length, 3)}</TableCell>
-              <TableCell>{num(t.len_parallel, 3)}</TableCell><TableCell>{num(t.ew_angle_deg, 3)}</TableCell>
+              {!cw && <TableCell>{num(t.len_parallel, 3)}</TableCell>}<TableCell>{num(t.ew_angle_deg, 3)}</TableCell>
               <TableCell>{num(t.top_arc, 3)}</TableCell><TableCell>{num(t.bottom_arc, 3)}</TableCell>
-              <TableCell>{num(t.R_radial_leg * 1e3, 3)}</TableCell><TableCell>{num(t.R_top * 1e3, 3)}</TableCell><TableCell>{num(t.R_bottom * 1e3, 3)}</TableCell>
+              {cw && <TableCell>{num(t.R_parallel * 1e3, 3)}</TableCell>}<TableCell>{num(t.R_radial_leg * 1e3, 3)}</TableCell><TableCell>{num(t.R_top * 1e3, 3)}</TableCell><TableCell>{num(t.R_bottom * 1e3, 3)}</TableCell>
             </TableRow>
           ))}
         </TableBody>
         <TableFooter>
           <TableRow>
-            <TableCell>Σ</TableCell><TableCell /><TableCell /><TableCell>{num(A.total_radial_one_side, 3)}</TableCell><TableCell /><TableCell />
+            <TableCell>Σ</TableCell><TableCell /><TableCell /><TableCell>{num(A.total_radial_one_side, 3)}</TableCell>{!cw && <TableCell />}<TableCell />
             <TableCell>{num(A.total_top_arc, 3)}</TableCell><TableCell>{num(A.total_bottom_arc, 3)}</TableCell>
-            <TableCell>{num(A.R_radial_one_side * 1e3, 3)}</TableCell><TableCell>{num(A.R_top_coil * 1e3, 3)}</TableCell><TableCell>{num(A.R_bottom_coil * 1e3, 3)}</TableCell>
+            {cw && <TableCell>{num(A.perTurn.reduce((x, t) => x + t.R_parallel, 0) * 1e3, 3)}</TableCell>}<TableCell>{num(A.R_radial_one_side * 1e3, 3)}</TableCell><TableCell>{num(A.R_top_coil * 1e3, 3)}</TableCell><TableCell>{num(A.R_bottom_coil * 1e3, 3)}</TableCell>
           </TableRow>
         </TableFooter>
       </Table>
@@ -111,6 +114,7 @@ function CoilDetails({ A }: { A: MotorResult['A'] }) {
 
 function WindingBody({ R }: { R: MotorResult }) {
   const { A, S, ed } = R
+  const cw = A.cw
   const [coil, setCoil] = useState(false)
   return (
     <div className="space-y-5">
@@ -120,8 +124,8 @@ function WindingBody({ R }: { R: MotorResult }) {
           <Kv k="Outer radius OR (Rout + end winding)" v={num(A.OR, 2)} unit="mm" />
           <Kv k="Inner radius IR (Rin − end winding)" v={num(A.IR, 2)} unit="mm" />
           <Kv k="Coil angle (360 / slots)" v={num(A.theta_coil_deg, 4)} unit="°" />
-          <Kv k="End-winding span" v={num(A.ew_angle_deg, 3)} unit="°" />
-          <Kv k="Per-turn angle" v={num(A.per_turn_angle_deg, 4)} unit="°" />
+          <Kv k={cw ? 'Outer turn span (coil angle − 1 trace pitch)' : 'End-winding span'} v={num(A.ew_angle_deg, 3)} unit="°" />
+          <Kv k={cw ? 'Trace pitch (coil angle / 2 turns)' : 'Per-turn angle'} v={num(A.per_turn_angle_deg, 4)} unit="°" />
           <Kv k="Net trace angle" v={num(A.net_trace_angle_deg, 4)} unit="°" />
         </Group>
         <Group title="Traces">
@@ -132,22 +136,52 @@ function WindingBody({ R }: { R: MotorResult }) {
           <Kv k="Top end-winding trace" v={num(A.top_ew_thickness, 4)} unit="mm" />
           <Kv k="Bottom end-winding trace" v={num(A.bottom_ew_thickness, 4)} unit="mm" />
         </Group>
-        <Group title="Winding">
-          <Kv k="Poles (slots / 3)" v={num(S.poles, 2)} />
-          <Kv k="Slots per phase (poles / 2)" v={num(ed.sides, 2)} />
-          <Kv k="Turns per slot / layer" v={A.turns} />
-          <Kv k="Series × parallel layer stacks" v={`${A.series_stacks} × ${A.total_layer_stacks}`} />
-          <Kv k="Total layers" v={num(totalLayers(R), 0)} />
-          <Kv k="Turns per phase" v={num(A.total_turns, 0)} em />
-        </Group>
-        <Group title="Resistance">
-          <Kv k="Coil, single layer" v={num(A.R_coil_single_layer * 1e3, 4)} unit="mΩ" />
-          <Kv k={`Radial, per stack (× ${num(A.mult, 0)} coils)`} v={num(A.R_radial_total, 4)} unit="Ω" />
-          <Kv k="End-winding, per stack" v={num(A.R_endwinding_total, 4)} unit="Ω" />
-          <Kv k={`× ${A.series_stacks} series ÷ ${A.total_layer_stacks} parallel`} v={num(A.R_stack_total - A.via_resistance, 4)} unit="Ω" />
-          <Kv k="+ via resistance" v={num(A.via_resistance, 4)} unit="Ω" />
-          <Kv k="Phase resistance" v={num(A.R_stack_total, 4)} unit="Ω" em />
-        </Group>
+        {cw ? (
+          <>
+            <Group title="Winding">
+              <Kv k="Poles" v={num(S.poles, 0)} />
+              <Kv k="Slots per pole Nsp" v={num(cw.Nsp, 4)} />
+              <Kv k="Winding factor Kw = kp × kd" v={`${num(cw.kp, 4)} × ${num(cw.kd, 4)} = ${num(cw.kw, 4)}`} />
+              <Kv k="Coils per phase (slots / 3)" v={num(A.mult, 2)} />
+              <Kv k="Turns per slot / layer" v={A.turns} />
+              <Kv k="Total layers" v={num(cw.total_layers, 0)} />
+              <Kv k="Layers in series per branch" v={num(cw.series_group_size, 0)} />
+              <Kv k="Parallel branches" v={num(cw.branches, 2)} />
+              <Kv k="Stack factor (series² / total)" v={num(cw.layer_factor, 4)} />
+              <Kv k="Turns per coil (turns × layers in series)" v={num(cw.turns_per_coil, 0)} />
+              <Kv k="Turns per phase" v={num(A.total_turns, 0)} em />
+            </Group>
+            <Group title="Resistance">
+              <Kv k="Radial legs, one side (stack)" v={num(A.R_radial_one_side * 1e3, 4)} unit="mΩ" />
+              <Kv k="Radial legs, both sides (stack)" v={num(A.R_radial_coil * 1e3, 4)} unit="mΩ" />
+              <Kv k="Top end-winding (stack)" v={num(A.R_top_coil * 1e3, 4)} unit="mΩ" />
+              <Kv k="Bottom end-winding (stack)" v={num(A.R_bottom_coil * 1e3, 4)} unit="mΩ" />
+              <Kv k="One coil, full layer stack" v={num(A.R_coil_single_layer * 1e3, 4)} unit="mΩ" em />
+              <Kv k={`× ${num(A.mult, 2)} coils per phase in series`} v={num(A.R_coil_total, 4)} unit="Ω" />
+              <Kv k="+ via & connection resistance" v={num(A.via_resistance, 4)} unit="Ω" />
+              <Kv k="Phase resistance" v={num(A.R_stack_total, 4)} unit="Ω" em />
+            </Group>
+          </>
+        ) : (
+          <>
+            <Group title="Winding">
+              <Kv k="Poles (slots / 3)" v={num(S.poles, 2)} />
+              <Kv k="Slots per phase (poles / 2)" v={num(ed.sides, 2)} />
+              <Kv k="Turns per slot / layer" v={A.turns} />
+              <Kv k="Series × parallel layer stacks" v={`${A.series_stacks} × ${A.total_layer_stacks}`} />
+              <Kv k="Total layers" v={num(totalLayers(R), 0)} />
+              <Kv k="Turns per phase" v={num(A.total_turns, 0)} em />
+            </Group>
+            <Group title="Resistance">
+              <Kv k="Coil, single layer" v={num(A.R_coil_single_layer * 1e3, 4)} unit="mΩ" />
+              <Kv k={`Radial, per stack (× ${num(A.mult, 0)} coils)`} v={num(A.R_radial_total, 4)} unit="Ω" />
+              <Kv k="End-winding, per stack" v={num(A.R_endwinding_total, 4)} unit="Ω" />
+              <Kv k={`× ${A.series_stacks} series ÷ ${A.total_layer_stacks} parallel`} v={num(A.R_stack_total - A.via_resistance, 4)} unit="Ω" />
+              <Kv k="+ via resistance" v={num(A.via_resistance, 4)} unit="Ω" />
+              <Kv k="Phase resistance" v={num(A.R_stack_total, 4)} unit="Ω" em />
+            </Group>
+          </>
+        )}
       </div>
       <Collapsible open={coil} onOpenChange={setCoil}>
         <CollapsibleTrigger asChild>
@@ -182,6 +216,7 @@ function cards(R: MotorResult): CardDef[] {
         <div className="grid gap-x-8 gap-y-5 md:grid-cols-2">
           <Group title="Voltage">
             <Kv k="Pole pairs (poles / 2)" v={num(emf.pp, 2)} />
+            <Kv k={A.cw ? 'Winding factor Kw (calculated)' : 'Winding factor Kw'} v={num(emf.Kw, 4)} />
             <Kv k="Turns per phase" v={num(emf.Nph, 0)} />
             <Kv k="Flux per pole φ" v={num(emf.phi, 6)} unit="Wb" />
             <Kv k="Back-EMF Ef" v={num(emf.Ef, 4)} unit="V" em />
@@ -208,7 +243,7 @@ function cards(R: MotorResult): CardDef[] {
             <Kv k="Thickness (copper)" v={num(ed.th, 3)} unit="mm" />
             <Kv k="Length (Rout − Rin)" v={num(ed.len, 2)} unit="mm" />
             <Kv k="Turns Nc" v={num(ed.Nc, 0)} />
-            <Kv k="Coil sides (slots per phase)" v={num(ed.sides, 2)} />
+            <Kv k={A.cw ? 'Coil sides (coils per phase)' : 'Coil sides (slots per phase)'} v={num(ed.sides, 2)} />
             <Kv k="Parallel paths" v={num(ed.paths, 0)} />
           </Group>
           <Group title="Field & loss">
