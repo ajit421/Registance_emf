@@ -10,8 +10,10 @@ specification it computes:
 - **Magnet spacing** checked against the design limits
 - **Electric loading:** present vs required
 
-It also has a parameter sweep for any input against any result, to-scale coil and stator
-drawings, and import/export as JSON, CSV, TXT or a shareable link.
+After the motor specification you choose the winding configuration. Distributed winding is
+fully calculated; concentrated winding is not implemented yet. Results are shown as one
+expandable card per section, with to-scale coil and stator drawings, and inputs can be
+imported/exported as JSON, CSV, TXT or a shareable link. Everything updates live as you type.
 
 ## Tech stack
 
@@ -20,7 +22,6 @@ drawings, and import/export as JSON, CSV, TXT or a shareable link.
 | Build | [Vite 8](https://vite.dev) (Rolldown) |
 | UI | React 19, TypeScript (strict) |
 | Styling | Tailwind CSS 4, [shadcn/ui](https://ui.shadcn.com) on Radix, light/dark/system theme |
-| Charts | Recharts 3 |
 | State | Zustand, with inputs saved in `localStorage` |
 | Quality | Vitest, oxlint |
 
@@ -51,27 +52,40 @@ static file server.
 src/
 ├─ lib/motor/            calculation code, no React
 │  ├─ schema.ts          every input (label, unit, default, limits) is declared once here
+│  ├─ derive.ts          values that follow from other inputs (poles = slots / 3, …)
 │  ├─ compute.ts         engine: spec → A winding → B eddy → C EMF → M magnets → D loading
 │  ├─ checks.ts          design errors and checks, returned as data
-│  ├─ metrics.ts         sweepable results and runSweep()
-│  ├─ override.ts        "change one input" helper used by the sweeps
 │  ├─ report.ts          plain-text report
 │  ├─ io.ts              validation and JSON / CSV / TXT / link import and export
 │  ├─ compute.test.ts
 │  └─ __fixtures__/      recorded reference results used by the regression test
 ├─ store/                Zustand stores (inputs, theme)
 ├─ hooks/                useMotor (inputs plus derived results), file import, drag-and-drop
-├─ components/           header, inputs sidebar, KPI strip, charts, coil drawings, ui/ (shadcn)
-└─ features/             one component per tab
+├─ components/           header, inputs sidebar, winding picker, advanced sheet, KPI strip,
+│                        coil drawings, ui/ (shadcn)
+└─ features/             Results: one expandable card per section
 ```
 
 ### Adding an input
 
-1. Add a field to `SCHEMA` in `src/lib/motor/schema.ts`.
-2. Use it in `compute.ts`.
+1. Add a field to `SCHEMA` in `src/lib/motor/schema.ts` (put it in the `X` section to keep it
+   in the Advanced sheet instead of the sidebar).
+2. Use it in `compute.ts`, or in `derive.ts` if it only feeds other engine values.
 
-The sidebar, exports, import validation and the sweep dropdown are generated from the schema,
+The sidebar, Advanced sheet, exports and import validation are generated from the schema,
 so they pick it up automatically.
+
+### Derived values (distributed winding)
+
+`derive.ts` fills these before the engine runs, so they are not inputs:
+
+| Value | Formula |
+|---|---|
+| Poles | slots / 3 |
+| Pole pairs, slots per phase | poles / 2 |
+| Outer and inner end-winding bands | end winding thickness |
+| Eddy conductor length | Rout − Rin |
+| Eddy parallel paths | layers per stack × parallel layer stacks |
 
 ## Tests
 
@@ -80,9 +94,10 @@ so they pick it up automatically.
 - **Reference results:** 200 randomly generated designs whose outputs were recorded from the
   original engine (`__fixtures__/reference-results.json`). Every value must match to within
   1e-9 relative error. A change of even the fourth decimal of a constant fails this test.
+- **Derived inputs:** the distributed-winding relations above.
 - **Default design:** known headline numbers.
-- **Parameter sweep:** best-value search and rounding of integer inputs.
-- **Import/export:** round trips through JSON, TXT, CSV and shareable links, plus input sanitising.
+- **Import/export:** round trips through JSON, TXT, CSV and shareable links (including the
+  winding choice), older exports, and input sanitising.
 
 If you change the physics model on purpose, regenerate the fixture and say so in the change
 description.

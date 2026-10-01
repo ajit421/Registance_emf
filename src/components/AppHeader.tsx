@@ -7,10 +7,11 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { Textarea } from '@/components/ui/textarea'
+import { AdvancedSheet } from '@/components/inputs/AdvancedSheet'
 import { InputPanel } from '@/components/inputs/InputPanel'
 import { useMotor } from '@/hooks/useMotor'
 import { useApplyImport, useImportFile } from '@/hooks/useImport'
-import { encodeLink, reportExport, shareDiff, toCSV } from '@/lib/motor/io'
+import { encodeLink, inputsObject, reportExport, shareDiff, toCSV } from '@/lib/motor/io'
 import { defaults } from '@/lib/motor/schema'
 import { copyText, download } from '@/lib/download'
 import { useMotorStore } from '@/store/motor'
@@ -49,14 +50,14 @@ function PasteDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
 }
 
 export function AppHeader() {
-  const { params, R } = useMotor()
+  const { params, winding, R } = useMotor()
   const replaceAll = useMotorStore(s => s.replaceAll)
   const { theme, setTheme } = useThemeStore()
   const importFile = useImportFile()
   const fileRef = useRef<HTMLInputElement>(null)
   const [paste, setPaste] = useState(false)
 
-  const shareLink = () => copyText(`${location.href.split('#')[0]}#p=${encodeLink(shareDiff(params))}`, 'Link with current inputs copied')
+  const shareLink = () => copyText(`${location.href.split('#')[0]}#p=${encodeLink(shareDiff(params, winding))}`, 'Link with current inputs copied')
   const resetAll = () => {
     const prev = params
     replaceAll(defaults())
@@ -100,12 +101,14 @@ export function AppHeader() {
             <Button variant="ghost" size="sm"><Download /><span className="hidden sm:inline">Export</span></Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onSelect={() => download('pcb_motor_results.csv', toCSV(params, R), 'text/csv')}><FileSpreadsheet />Results as CSV</DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => download('pcb_motor_inputs.json', JSON.stringify(params, null, 2), 'application/json')}><FileJson />Inputs as JSON</DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => download('pcb_motor_report.txt', reportExport(params, R), 'text/plain')}><FileText />Report as TXT</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => download('pcb_motor_results.csv', toCSV(params, winding, R), 'text/csv')}><FileSpreadsheet />Results as CSV</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => download('pcb_motor_inputs.json', JSON.stringify(inputsObject(params, winding), null, 2), 'application/json')}><FileJson />Inputs as JSON</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => download('pcb_motor_report.txt', reportExport(inputsObject(params, winding), R), 'text/plain')}><FileText />Report as TXT</DropdownMenuItem>
             <DropdownMenuItem onSelect={shareLink}><Link />Copy shareable link</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+
+        <AdvancedSheet />
 
         <Button variant="ghost" size="sm" onClick={resetAll} title="Reset all inputs"><RotateCcw /><span className="hidden md:inline">Reset</span></Button>
 

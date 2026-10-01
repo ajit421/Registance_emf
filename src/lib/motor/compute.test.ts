@@ -1,13 +1,42 @@
 import { describe, expect, it } from 'vitest'
 import { compute } from './compute'
-import { parseImport, reportExport, sanitize, shareDiff, encodeLink, toCSV } from './io'
-import { runSweep } from './metrics'
+import { derive, evaluate } from './derive'
+import { inputsObject, parseImport, readWinding, reportExport, sanitize, shareDiff, encodeLink, toCSV } from './io'
 import { reportText } from './report'
 import { defaults, type MotorParams } from './schema'
 import reference from './__fixtures__/reference-results.json'
 
+/** The original default design, which had pole pairs 9 as a separate input. */
+const legacyDefaults = () => ({ ...derive(defaults()), emf_pp: 9 })
+
+describe('derived inputs (distributed winding)', () => {
+  const d = derive({ ...defaults(), spec_slots: 72, ORS: 80, IRS: 55, ew_band: 4, layer_stack: 2, total_layer_stacks: 3 })
+
+  it('fills poles, pole pairs and slots per phase from the slot count', () => {
+    expect(d.spec_poles).toBe(24)
+    expect(d.emf_pp).toBe(12)
+    expect(d.slots_per_phase).toBe(12)
+  })
+
+  it('uses one end-winding thickness for both bands, Rout − Rin as conductor length', () => {
+    expect(d.dOR).toBe(4)
+    expect(d.dIR).toBe(4)
+    expect(d.ed_len).toBe(25)
+    expect(d.ed_paths).toBe(6)
+  })
+
+  it('reproduces the original defaults apart from pole pairs', () => {
+    const old = compute(legacyDefaults()), now = evaluate(defaults())
+    expect(now.emf.pp).toBe(15)
+    // pole pairs cancel out of Ef (φ ∝ 1/pp, Ef ∝ pp·φ), so only φ itself changes
+    expect(now.emf.Ef).toBeCloseTo(old.emf.Ef, 10)
+    expect(now.emf.eta).toBeCloseTo(old.emf.eta, 12)
+    expect(now.emf.phi).toBeCloseTo(old.emf.phi * 9 / 15, 15)
+  })
+})
+
 describe('compute — default design', () => {
-  const r = compute(defaults())
+  const r = compute(legacyDefaults())
 
   it('has no warnings', () => expect(r.warnings).toEqual([]))
 
@@ -26,9 +55,9 @@ describe('compute — default design', () => {
 
   it('solves the spec triangle', () => {
     const d = defaults()
-    const P = compute({ ...d, spec_solve: 'P' }).S
+    const P = evaluate({ ...d, spec_solve: 'P' }).S
     expect(P.P).toBeCloseTo(22.5, 10)
-    const rpm = compute({ ...d, spec_solve: 'rpm' }).S
+    const rpm = evaluate({ ...d, spec_solve: 'rpm' }).S
     expect(rpm.rpm).toBeCloseTo(350, 10)
   })
 })
@@ -59,51 +88,46 @@ describe('reference results', () => {
   })
 
   it('produces the same text report', () => {
-    expect(reportText(compute(defaults()))).toBe(reference.defaultsReport)
-  })
-})
-
-describe('parameter sweep', () => {
-  it('finds the best efficiency and keeps swept spec values as given inputs', () => {
-    const res = runSweep(defaults(), 'spec_rpm', 'eta', 100, 600, 51)!
-    expect(res.pts).toHaveLength(51)
-    expect(res.best!.y).toBe(Math.max(...res.good.map(p => p.y)))
-    // with torque solved, sweeping speed must actually change speed, not be overwritten by the solver
-    expect(res.pts[0].x).toBe(100)
-    expect(res.pts[0].y).not.toBeCloseTo(res.pts[50].y, 6)
-  })
-
-  it('rounds integer inputs and rejects empty ranges', () => {
-    const res = runSweep(defaults(), 'turns', 'R', 2, 8, 41)!
-    expect(res.pts.map(p => p.x)).toEqual([2, 3, 4, 5, 6, 7, 8])
-    expect(runSweep(defaults(), 'turns', 'R', 5, 5, 10)).toBeNull()
+    expect(reportText(compute(legacyDefaults()))).toBe(reference.defaultsReport)
   })
 })
 
 describe('import / export', () => {
   const p: MotorParams = { ...defaults(), turns: 7, ORS: 72.5, spec_solve: 'P' }
-  const R = compute(p)
+  const R = evaluate(p)
 
-  it('sanitize drops unknown keys and non-numbers', () => {
-    const s = sanitize({ turns: '6', bogus: 1, ORS: 'abc', spec_solve: 'nope' })
+  it('sanitize drops unknown keys, non-numbers and out-of-range values', () => {
+    const s = sanitize({ turns: '6', bogus: 1, ORS: 'abc', IRS: null, spec_slots: 0, spec_solve: 'nope' })
     expect(s.turns).toBe(6)
     expect(s.ORS).toBe(70)
+    expect(s.IRS).toBe(50)
+    expect(s.spec_slots).toBe(90)
     expect('bogus' in s).toBe(false)
     expect(s.spec_solve).toBe('T')
   })
 
-  it('round-trips JSON, TXT, CSV and links', () => {
+  it('reads the end-winding thickness from older exports', () => {
+    expect(sanitize({ dOR: 3.5, dIR: 5 }).ew_band).toBe(3.5)
+  })
+
+  it('round-trips JSON, TXT, CSV and links, including the winding choice', () => {
     for (const text of [
-      JSON.stringify(p),
-      reportExport(p, R),
-      toCSV(p, R),
-      `https://example.com/#p=${encodeLink(shareDiff(p))}`,
+      JSON.stringify(inputsObject(p, 'concentrated')),
+      reportExport(inputsObject(p, 'concentrated'), R),
+      toCSV(p, 'concentrated', R),
+      `https://example.com/#p=${encodeLink(shareDiff(p, 'concentrated'))}`,
     ]) {
-      const back = sanitize(parseImport(text).obj)
+      const { obj } = parseImport(text)
+      const back = sanitize(obj)
       expect(back.turns).toBe(7)
       expect(back.ORS).toBe(72.5)
       expect(back.spec_solve).toBe('P')
+      expect(readWinding(obj)).toBe('concentrated')
     }
+  })
+
+  it('treats imports without a winding choice as distributed', () => {
+    expect(readWinding(parseImport(JSON.stringify({ turns: 4 })).obj)).toBe('distributed')
   })
 
   it('rejects unknown formats', () => {

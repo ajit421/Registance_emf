@@ -1,23 +1,39 @@
 /* Import / export of inputs: JSON, CSV, TXT report (with inputs trailer) and shareable links. */
 import type { MotorResult } from './compute'
 import { reportText } from './report'
-import { FIELDS, SCHEMA, defaults, isSpecSolve, values, type MotorParams } from './schema'
+import { FIELDS, SCHEMA, defaults, inRange, isSpecSolve, isWinding, values, type MotorParams, type Winding } from './schema'
 
 const DEF = defaults()
 
-/** Keep only finite numbers on known keys; everything else falls back to defaults. */
+const toNumber = (v: unknown) =>
+  typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN
+
+/** Keep only in-range numbers on known keys; everything else falls back to defaults. */
 export function sanitize(obj: unknown): MotorParams {
   const out: MotorParams = { ...DEF }
   if (obj && typeof obj === 'object') {
-    const src = obj as Record<string, unknown>
+    const src: Record<string, unknown> = { ...obj }
+    // exports from before the single end-winding thickness input
+    if (!('ew_band' in src) && 'dOR' in src) src.ew_band = src.dOR
     Object.keys(src).forEach(k => {
-      const v = Number(src[k])
-      if (k in FIELDS && Number.isFinite(v)) out[k] = FIELDS[k].int ? Math.round(v) : v
+      const f = FIELDS[k]
+      if (!f) return
+      const v = f.int ? Math.round(toNumber(src[k])) : toNumber(src[k])
+      if (inRange(f, v)) out[k] = v
     })
     if (isSpecSolve(src.spec_solve)) out.spec_solve = src.spec_solve
   }
   return out
 }
+
+/** Winding configuration stored in an import; files from before the choice existed are distributed. */
+export function readWinding(obj: unknown): Winding {
+  const w = obj && typeof obj === 'object' ? (obj as Record<string, unknown>).winding : undefined
+  return isWinding(w) ? w : 'distributed'
+}
+
+/** Everything the user entered, as saved in JSON / TXT exports and links. */
+export const inputsObject = (p: MotorParams, winding: Winding | null) => ({ winding, ...p })
 
 export const same = (a: number, b: number) => Math.abs(a - b) <= 1e-12 * Math.max(1, Math.abs(a), Math.abs(b))
 
@@ -28,19 +44,24 @@ export const changedKeys = (p: MotorParams) =>
 export const encodeLink = (obj: object) => encodeURIComponent(btoa(encodeURIComponent(JSON.stringify(obj))))
 export const decodeLink = (s: string): unknown => JSON.parse(decodeURIComponent(atob(decodeURIComponent(s))))
 
-export function shareDiff(p: MotorParams): Record<string, unknown> {
+export function shareDiff(p: MotorParams, winding: Winding | null): Record<string, unknown> {
   const diff: Record<string, unknown> = {}
+  if (winding) diff.winding = winding
   changedKeys(p).forEach(k => { diff[k] = p[k] })
   if (p.spec_solve !== DEF.spec_solve) diff.spec_solve = p.spec_solve
   return diff
 }
 
-export function toCSV(p: MotorParams, R: MotorResult): string {
-  const { A, ed, emf, el, mag } = R
+const WINDING_LABEL = 'Winding configuration'
+
+export function toCSV(p: MotorParams, winding: Winding | null, R: MotorResult): string {
+  const { S, A, ed, emf, el, mag } = R
   const rows: (string | number)[][] = [['section', 'quantity', 'value', 'unit']]
   rows.push(['input S', 'Calculate', p.spec_solve, ''])
+  rows.push(['input S', WINDING_LABEL, winding ?? '', ''])
   SCHEMA.forEach(g => g.fields.forEach(f => rows.push([`input ${g.id}`, f.label, p[f.key], f.unit])))
   const out: [string, string, number, string][] = [
+    ['S', 'Poles', S.poles, ''], ['S', 'Slots per phase', ed.sides, ''],
     ['A', 'Outer radius OR', A.OR, 'mm'], ['A', 'Inner radius IR', A.IR, 'mm'],
     ['A', 'Trace width at IR', A.trace_width_radial_atIR, 'mm'], ['A', 'Average radial trace width', A.trace_width_radial_avg, 'mm'],
     ['A', 'Top end-winding thickness', A.top_ew_thickness, 'mm'], ['A', 'Bottom end-winding thickness', A.bottom_ew_thickness, 'mm'],
@@ -64,7 +85,7 @@ export function toCSV(p: MotorParams, R: MotorResult): string {
 
 /** Report text + a comment trailer holding every input, so the .txt can be imported back. */
 const TXT_TAG = '% inputs (for import):'
-export const reportExport = (p: MotorParams, R: MotorResult) => `${reportText(R)}\n\n${TXT_TAG} ${JSON.stringify(p)}\n`
+export const reportExport = (inputs: object, R: MotorResult) => `${reportText(R)}\n\n${TXT_TAG} ${JSON.stringify(inputs)}\n`
 
 function parseCSV(text: string): string[][] {
   const rows: string[][] = []
@@ -95,6 +116,7 @@ function fromCSV(text: string): Omit<ImportResult, 'kind'> {
     const m = sec.match(/^input\s+(\w+)$/i)
     if (!m) return
     if (label === 'Calculate') { obj.spec_solve = value; return }
+    if (label === WINDING_LABEL) { obj.winding = value; return }
     const g = SCHEMA.find(x => x.id === m[1].toUpperCase())
     const f = g?.fields.find(x => x.label === label || x.key === label)
     if (f && value !== '' && Number.isFinite(Number(value))) { obj[f.key] = Number(value); n++ }

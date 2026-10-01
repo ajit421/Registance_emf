@@ -1,6 +1,5 @@
 /* Design rules and sanity checks, returned as data so the UI decides how to render them. */
 import type { MotorResult } from './compute'
-import { same } from './io'
 import { LIMITS } from './schema'
 import { num } from '@/lib/format'
 
@@ -24,9 +23,9 @@ export function designErrors(R: MotorResult): Check[] {
   ]
 }
 
-/** Softer checks: engine warnings, PCB manufacturability, pole consistency. */
+/** Softer checks: engine warnings, PCB manufacturability, pole count. */
 export function designChecks(R: MotorResult): Check[] {
-  const { A, ed, emf } = R
+  const { A, S, ed } = R
   const out: Check[] = R.warnings.map(text => ({ level: 'bad', text }))
   const minW = Math.min(A.trace_width_radial_atIR, A.top_ew_thickness, A.bottom_ew_thickness)
   if (Number.isFinite(minW) && minW > 0) {
@@ -34,9 +33,10 @@ export function designChecks(R: MotorResult): Check[] {
       ? { level: 'ok', text: `Narrowest copper feature is ${num(minW, 3)} mm, above the common 0.127 mm (5 mil) PCB limit.` }
       : { level: 'warn', text: `Narrowest copper feature is ${num(minW, 3)} mm, below the common 0.127 mm (5 mil) PCB limit.` })
   }
-  // pole pairs in C is a separate input from the spec poles
-  out.push(same(ed.poles, 2 * emf.pp)
-    ? { level: 'ok', text: 'Spec poles match 2 × pole pairs in C.' }
-    : { level: 'warn', text: `Pole pairs differ: spec poles ${num(ed.poles, 0)} vs 2 × pole pairs in C = ${num(2 * emf.pp, 0)}.` })
+  // poles = slots / 3 and slots per phase = poles / 2, so both are whole only for a multiple of 6 slots
+  const evenPoles = Number.isInteger(S.poles) && S.poles % 2 === 0
+  out.push(evenPoles
+    ? { level: 'ok', text: `${num(S.slots, 0)} slots give ${num(S.poles, 0)} poles and ${num(ed.sides, 0)} slots per phase.` }
+    : { level: 'warn', text: `${num(S.slots, 0)} slots give ${num(S.poles, 2)} poles; use a multiple of 6 slots so poles and slots per phase are whole numbers.` })
   return out
 }

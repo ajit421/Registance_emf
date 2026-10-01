@@ -1,17 +1,17 @@
 /* Importing inputs from text or files, with undo. Also handles drag-and-drop anywhere on the page. */
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { parseImport, sanitize } from '@/lib/motor/io'
+import { parseImport, readWinding, sanitize } from '@/lib/motor/io'
 import { useMotorStore } from '@/store/motor'
 
 export function useApplyImport() {
   return useCallback((raw: string, source?: string) => {
     const res = parseImport(raw)
-    const { params: prev, replaceAll } = useMotorStore.getState()
-    replaceAll(sanitize(res.obj))
+    const { params: prev, winding: prevWinding, replaceAll } = useMotorStore.getState()
+    replaceAll(sanitize(res.obj), readWinding(res.obj))
     const what = res.partial ? `${res.n} inputs read from report text (the rest set to defaults)` : `${res.n} inputs imported`
     toast.success(`${res.kind}${source ? ` “${source}”` : ''}: ${what}`, {
-      action: { label: 'Undo', onClick: () => replaceAll(prev) },
+      action: { label: 'Undo', onClick: () => replaceAll(prev, prevWinding) },
       duration: 6000,
     })
   }, [])

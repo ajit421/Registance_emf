@@ -13,7 +13,6 @@ export default defineConfig({
         codeSplitting: {
           groups: [
             { name: 'react', test: /node_modules[\\/](react|react-dom|scheduler)[\\/]/ },
-            { name: 'charts', test: /node_modules[\\/](recharts|d3-.*|victory-vendor|@reduxjs|immer|reselect|es-toolkit|decimal\.js-light)[\\/]/ },
             { name: 'ui', test: /node_modules[\\/](radix-ui|@radix-ui|lucide-react|sonner|@floating-ui)[\\/]/ },
           ],
         },
