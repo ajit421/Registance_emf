@@ -10,13 +10,14 @@ export interface Check { level: CheckLevel; text: string }
 export function designErrors(R: MotorResult): Check[] {
   const { A, mag, el } = R
   const lo = LIMITS.magSpaceMin, hi = LIMITS.magSpaceMax
+  const at = A.cw ? 'IRS' : 'IR'
   return [
     mag.spaceOk
       ? { level: 'ok', text: `Space between two magnets is ${num(mag.space, 3)} mm, within ${lo}–${hi} mm.` }
       : { level: 'bad', text: `Space between two magnets is ${num(mag.space, 3)} mm, ${mag.space < lo ? 'below the minimum' : 'above the maximum'} (allowed ${lo}–${hi} mm). Pole pitch ${num(mag.pole_pitch, 3)} mm − magnet width ${num(mag.width, 3)} mm.` },
     A.traceOk
-      ? { level: 'ok', text: `Trace width at IR is ${num(A.trace_width_radial_atIR, 4)} mm, at or above the minimum of ${num(A.min_trace_IR, 3)} mm.` }
-      : { level: 'bad', text: `Trace width at IR is ${num(A.trace_width_radial_atIR, 4)} mm, below the minimum of ${num(A.min_trace_IR, 3)} mm.` },
+      ? { level: 'ok', text: `Trace width at ${at} is ${num(A.trace_width_radial_atIR, 4)} mm, at or above the minimum of ${num(A.min_trace_IR, 3)} mm.` }
+      : { level: 'bad', text: `Trace width at ${at} is ${num(A.trace_width_radial_atIR, 4)} mm, below the minimum of ${num(A.min_trace_IR, 3)} mm.` },
     el.enough
       ? { level: 'ok', text: `Electric loading is sufficient: present ${num(el.Ac_present, 0)} A/m ≥ required ${num(el.Ac_required, 0)} A/m (×${num(el.ratio, 2)}).` }
       : { level: 'bad', text: `Electric loading is not sufficient: present ${num(el.Ac_present, 0)} A/m < required ${num(el.Ac_required, 0)} A/m (×${num(el.ratio, 2)}).` },
@@ -27,7 +28,9 @@ export function designErrors(R: MotorResult): Check[] {
 export function designChecks(R: MotorResult): Check[] {
   const { A, S, ed } = R
   const out: Check[] = R.warnings.map(text => ({ level: 'bad', text }))
-  const minW = Math.min(A.trace_width_radial_atIR, A.top_ew_thickness, A.bottom_ew_thickness)
+  // concentrated: the radial legs inside the end-winding bands are copper too
+  const legs = A.cw ? A.cw.perTurnEw.flatMap(t => [t.top_leg_w, t.bottom_leg_w]) : []
+  const minW = Math.min(A.trace_width_radial_atIR, A.top_ew_thickness, A.bottom_ew_thickness, ...legs)
   if (Number.isFinite(minW) && minW > 0) {
     out.push(minW >= 0.127
       ? { level: 'ok', text: `Narrowest copper feature is ${num(minW, 3)} mm, above the common 0.127 mm (5 mil) PCB limit.` }
@@ -35,7 +38,7 @@ export function designChecks(R: MotorResult): Check[] {
   }
   const evenPoles = Number.isInteger(S.poles) && S.poles % 2 === 0
   if (A.cw) {
-    // slot and layer divisibility are already engine warnings
+    // slot divisibility is already an engine warning
     out.push(evenPoles
       ? { level: 'ok', text: `${num(S.slots, 0)} slots / ${num(S.poles, 0)} poles: ${num(A.cw.Nsp, 3)} slots per pole, ${num(A.mult, 2)} coils per phase, winding factor ${num(A.cw.kw, 3)}.` }
       : { level: 'warn', text: `Poles (${num(S.poles, 2)}) should be an even whole number.` })

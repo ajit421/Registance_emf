@@ -41,8 +41,8 @@ export function deriveConcentrated(p: MotorParams): MotorParams {
     emf_pp: v.spec_poles / 2,
     emf_Kw: windingFactor(v.spec_slots, v.spec_poles).kw,
     slots_per_phase: v.spec_slots / 3,
-    // parallel paths = parallel branches of the layer stack
-    ed_paths: v.cw_total_layers / v.cw_series_group,
+    // every layer is in series (already counted in the turns per phase), so one path
+    ed_paths: 1,
   }
 }
 

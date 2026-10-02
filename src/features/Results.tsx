@@ -14,6 +14,7 @@ import { num, pct, turnColor } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 const DEG = Math.PI / 180
+const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length
 
 interface CardDef {
   id: string
@@ -48,7 +49,7 @@ function ResultCard({ c, open, onOpenChange }: { c: CardDef; open: boolean; onOp
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-medium">{c.title}</span>
           {c.status && (
-            <span className={cn('mt-0.5 inline-block rounded px-1.5 py-px text-[0.68rem] font-medium', STATUS_STYLE[c.status.level])}>{c.status.text}</span>
+            <span className={cn('mt-0.5 inline-block rounded px-1.5 py-px text-[0.68rem] font-medium whitespace-nowrap', STATUS_STYLE[c.status.level])}>{c.status.text}</span>
           )}
         </span>
         <span className="flex shrink-0 gap-5">
@@ -68,12 +69,48 @@ function ResultCard({ c, open, onOpenChange }: { c: CardDef; open: boolean; onOp
   )
 }
 
+/** Per-turn end-winding breakdown of a concentrated coil (one slot, one layer). */
+function ConcentratedTable({ A, active, setActive }: { A: MotorResult['A']; active: number | null; setActive: (k: number | null) => void }) {
+  const ew = A.cw!.perTurnEw
+  const heads = ['Turn', 'Top Rk mm', 'Top leg mm', 'Top leg w mm', 'Top arc mm', 'R top mΩ', 'Bottom Rk mm', 'Bottom leg mm', 'Bottom leg w mm', 'Bottom arc mm', 'R bottom mΩ']
+  const s = (f: (t: (typeof ew)[number]) => number) => ew.reduce((x, t) => x + f(t), 0)
+  return (
+    <>
+      <Table className="num font-mono text-xs">
+        <TableHeader>
+          <TableRow>{heads.map(h => <TableHead key={h} className="font-sans">{h}</TableHead>)}</TableRow>
+        </TableHeader>
+        <TableBody>
+          {ew.map(t => (
+            <TableRow key={t.k} onMouseEnter={() => setActive(t.k)} onMouseLeave={() => setActive(null)} className={cn(active === t.k && 'bg-accent')}>
+              <TableCell><i className="mr-2 inline-block size-2.5 rounded-sm" style={{ background: turnColor(t.k) }} />{t.k}</TableCell>
+              <TableCell>{num(t.top_r, 3)}</TableCell><TableCell>{num(t.top_leg_len, 3)}</TableCell><TableCell>{num(t.top_leg_w, 3)}</TableCell>
+              <TableCell>{num(t.top_arc, 3)}</TableCell><TableCell>{num((t.R_top_legs + t.R_top_arc) * 1e3, 3)}</TableCell>
+              <TableCell>{num(t.bottom_r, 3)}</TableCell><TableCell>{num(t.bottom_leg_len, 3)}</TableCell><TableCell>{num(t.bottom_leg_w, 3)}</TableCell>
+              <TableCell>{num(t.bottom_arc, 3)}</TableCell><TableCell>{num((t.R_bottom_legs + t.R_bottom_arc) * 1e3, 3)}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+        <TableFooter>
+          <TableRow>
+            <TableCell>Σ</TableCell><TableCell /><TableCell>{num(s(t => t.top_leg_len), 3)}</TableCell><TableCell />
+            <TableCell>{num(A.total_top_arc, 3)}</TableCell><TableCell>{num(A.R_top_coil * 1e3, 3)}</TableCell>
+            <TableCell /><TableCell>{num(s(t => t.bottom_leg_len), 3)}</TableCell><TableCell />
+            <TableCell>{num(A.total_bottom_arc, 3)}</TableCell><TableCell>{num(A.R_bottom_coil * 1e3, 3)}</TableCell>
+          </TableRow>
+        </TableFooter>
+      </Table>
+      <p className="text-xs text-muted-foreground">
+        Leg lengths are one side; R includes both legs and the arc. Each radial trace of the radial winding
+        ({num(A.ORS - A.IRS, 2)} mm, average width {num(A.trace_width_radial_avg, 3)} mm) is {num(A.perTurn[0]?.R_radial_leg * 1e3, 3)} mΩ.
+      </p>
+    </>
+  )
+}
+
 function CoilDetails({ A }: { A: MotorResult['A'] }) {
   const [active, setActive] = useState<number | null>(null)
-  const cw = !!A.cw
-  const heads = cw
-    ? ['Turn', 'Rin mm', 'Rout mm', 'Radial mm', 'EW angle °', 'Top arc mm', 'Bottom arc mm', 'R leg 1 layer mΩ', 'R leg stack mΩ', 'R top mΩ', 'R bottom mΩ']
-    : ['Turn', 'Rin mm', 'Rout mm', 'Radial mm', 'Parallel mm', 'EW angle °', 'Top arc mm', 'Bottom arc mm', 'R leg mΩ', 'R top mΩ', 'R bottom mΩ']
+  const heads = ['Turn', 'Rin mm', 'Rout mm', 'Radial mm', 'Parallel mm', 'EW angle °', 'Top arc mm', 'Bottom arc mm', 'R leg mΩ', 'R top mΩ', 'R bottom mΩ']
   return (
     <div className="space-y-5">
       <div className="grid items-center gap-6 md:grid-cols-[1fr_13rem]">
@@ -83,7 +120,7 @@ function CoilDetails({ A }: { A: MotorResult['A'] }) {
           <p className="mt-2 text-center text-xs text-muted-foreground">{A.slots} slots · 1 coil highlighted · drawn to scale</p>
         </div>
       </div>
-      <Table className="num font-mono text-xs">
+      {A.cw ? <ConcentratedTable A={A} active={active} setActive={setActive} /> : <Table className="num font-mono text-xs">
         <TableHeader>
           <TableRow>
             {heads.map(h => <TableHead key={h} className="font-sans">{h}</TableHead>)}
@@ -94,20 +131,20 @@ function CoilDetails({ A }: { A: MotorResult['A'] }) {
             <TableRow key={t.k} onMouseEnter={() => setActive(t.k)} onMouseLeave={() => setActive(null)} className={cn(active === t.k && 'bg-accent')}>
               <TableCell><i className="mr-2 inline-block size-2.5 rounded-sm" style={{ background: turnColor(t.k) }} />{t.k}</TableCell>
               <TableCell>{num(t.Rin, 3)}</TableCell><TableCell>{num(t.Rout, 3)}</TableCell><TableCell>{num(t.radial_length, 3)}</TableCell>
-              {!cw && <TableCell>{num(t.len_parallel, 3)}</TableCell>}<TableCell>{num(t.ew_angle_deg, 3)}</TableCell>
+              <TableCell>{num(t.len_parallel, 3)}</TableCell><TableCell>{num(t.ew_angle_deg, 3)}</TableCell>
               <TableCell>{num(t.top_arc, 3)}</TableCell><TableCell>{num(t.bottom_arc, 3)}</TableCell>
-              {cw && <TableCell>{num(t.R_parallel * 1e3, 3)}</TableCell>}<TableCell>{num(t.R_radial_leg * 1e3, 3)}</TableCell><TableCell>{num(t.R_top * 1e3, 3)}</TableCell><TableCell>{num(t.R_bottom * 1e3, 3)}</TableCell>
+              <TableCell>{num(t.R_radial_leg * 1e3, 3)}</TableCell><TableCell>{num(t.R_top * 1e3, 3)}</TableCell><TableCell>{num(t.R_bottom * 1e3, 3)}</TableCell>
             </TableRow>
           ))}
         </TableBody>
         <TableFooter>
           <TableRow>
-            <TableCell>Σ</TableCell><TableCell /><TableCell /><TableCell>{num(A.total_radial_one_side, 3)}</TableCell>{!cw && <TableCell />}<TableCell />
+            <TableCell>Σ</TableCell><TableCell /><TableCell /><TableCell>{num(A.total_radial_one_side, 3)}</TableCell><TableCell /><TableCell />
             <TableCell>{num(A.total_top_arc, 3)}</TableCell><TableCell>{num(A.total_bottom_arc, 3)}</TableCell>
-            {cw && <TableCell>{num(A.perTurn.reduce((x, t) => x + t.R_parallel, 0) * 1e3, 3)}</TableCell>}<TableCell>{num(A.R_radial_one_side * 1e3, 3)}</TableCell><TableCell>{num(A.R_top_coil * 1e3, 3)}</TableCell><TableCell>{num(A.R_bottom_coil * 1e3, 3)}</TableCell>
+            <TableCell>{num(A.R_radial_one_side * 1e3, 3)}</TableCell><TableCell>{num(A.R_top_coil * 1e3, 3)}</TableCell><TableCell>{num(A.R_bottom_coil * 1e3, 3)}</TableCell>
           </TableRow>
         </TableFooter>
-      </Table>
+      </Table>}
     </div>
   )
 }
@@ -119,51 +156,69 @@ function WindingBody({ R }: { R: MotorResult }) {
   return (
     <div className="space-y-5">
       <div className="grid gap-x-8 gap-y-5 md:grid-cols-2">
-        <Group title="Geometry">
-          <Kv k="Radial winding Rout / Rin" v={`${num(A.ORS, 2)} / ${num(A.IRS, 2)}`} unit="mm" />
-          <Kv k="Outer radius OR (Rout + end winding)" v={num(A.OR, 2)} unit="mm" />
-          <Kv k="Inner radius IR (Rin − end winding)" v={num(A.IR, 2)} unit="mm" />
-          <Kv k="Coil angle (360 / slots)" v={num(A.theta_coil_deg, 4)} unit="°" />
-          <Kv k={cw ? 'Outer turn span (coil angle − 1 trace pitch)' : 'End-winding span'} v={num(A.ew_angle_deg, 3)} unit="°" />
-          <Kv k={cw ? 'Trace pitch (coil angle / 2 turns)' : 'Per-turn angle'} v={num(A.per_turn_angle_deg, 4)} unit="°" />
-          <Kv k="Net trace angle" v={num(A.net_trace_angle_deg, 4)} unit="°" />
-        </Group>
-        <Group title="Traces">
-          <Kv k="Trace width at IR" v={<>{num(A.trace_width_radial_atIR, 4)}{!A.traceOk && <b className="ml-1 text-bad">too narrow</b>}</>} unit="mm" />
-          <Kv k="Min trace width at inner radius" v={num(A.min_trace_IR, 4)} unit="mm" />
-          <Kv k={`Average trace width (r = ${num(A.r_mean_turns, 2)} mm)`} v={num(A.trace_width_radial_avg, 4)} unit="mm" em />
-          <Kv k="Average radial gap" v={num(A.gap_deg * DEG * A.r_mean_turns, 4)} unit="mm" />
-          <Kv k="Top end-winding trace" v={num(A.top_ew_thickness, 4)} unit="mm" />
-          <Kv k="Bottom end-winding trace" v={num(A.bottom_ew_thickness, 4)} unit="mm" />
-        </Group>
         {cw ? (
           <>
+            <Group title="Geometry">
+              <Kv k="Radial winding Rout / Rin" v={`${num(A.ORS, 2)} / ${num(A.IRS, 2)}`} unit="mm" />
+              <Kv k="Outer radius OR (Rout + end winding)" v={num(A.OR, 2)} unit="mm" />
+              <Kv k="Inner radius IR (Rin − end winding)" v={num(A.IR, 2)} unit="mm" />
+              <Kv k="Slot pitch (360 / slots)" v={num(A.theta_coil_deg, 4)} unit="°" />
+              <Kv k="Radial trace angle (half pitch − via − slot space)" v={num(cw.radial_angle_deg, 4)} unit="°" />
+              <Kv k="End-winding span (pitch − 2 × slot space)" v={num(A.ew_angle_deg, 4)} unit="°" />
+            </Group>
+            <Group title="Traces">
+              <Kv k="Trace width at IRS" v={<>{num(cw.w_IRS, 4)}{!A.traceOk && <b className="ml-1 text-bad">too narrow</b>}</>} unit="mm" />
+              <Kv k="Trace width at ORS" v={num(cw.w_ORS, 4)} unit="mm" />
+              <Kv k="Min trace width" v={num(A.min_trace_IR, 4)} unit="mm" />
+              <Kv k={`Average trace width (r = ${num(A.r_mean_turns, 2)} mm)`} v={num(A.trace_width_radial_avg, 4)} unit="mm" em />
+              <Kv k="Radial trace gap" v={num(cw.gap_radial, 4)} unit="mm" />
+              <Kv k="End-winding trace top / bottom" v={`${num(A.top_ew_thickness, 4)} / ${num(A.bottom_ew_thickness, 4)}`} unit="mm" />
+              <Kv k="End-winding radial leg gap" v={num(cw.gap_radial_ew, 4)} unit="mm" />
+              <Kv k="End-winding radial leg width, mean top / bottom"
+                v={`${num(mean(cw.perTurnEw.map(t => t.top_leg_w)), 4)} / ${num(mean(cw.perTurnEw.map(t => t.bottom_leg_w)), 4)}`} unit="mm" />
+            </Group>
             <Group title="Winding">
               <Kv k="Poles" v={num(S.poles, 0)} />
               <Kv k="Slots per pole Nsp" v={num(cw.Nsp, 4)} />
               <Kv k="Winding factor Kw = kp × kd" v={`${num(cw.kp, 4)} × ${num(cw.kd, 4)} = ${num(cw.kw, 4)}`} />
               <Kv k="Coils per phase (slots / 3)" v={num(A.mult, 2)} />
-              <Kv k="Turns per slot / layer" v={A.turns} />
-              <Kv k="Total layers" v={num(cw.total_layers, 0)} />
-              <Kv k="Layers in series per branch" v={num(cw.series_group_size, 0)} />
-              <Kv k="Parallel branches" v={num(cw.branches, 2)} />
-              <Kv k="Stack factor (series² / total)" v={num(cw.layer_factor, 4)} />
-              <Kv k="Turns per coil (turns × layers in series)" v={num(cw.turns_per_coil, 0)} />
+              <Kv k="Turns per slot" v={A.turns} />
+              <Kv k="Total layers (all in series)" v={num(cw.total_layers, 0)} />
+              <Kv k="Turns per coil (turns × layers)" v={num(cw.turns_per_coil, 0)} />
               <Kv k="Turns per phase" v={num(A.total_turns, 0)} em />
             </Group>
             <Group title="Resistance">
-              <Kv k="Radial legs, one side (stack)" v={num(A.R_radial_one_side * 1e3, 4)} unit="mΩ" />
-              <Kv k="Radial legs, both sides (stack)" v={num(A.R_radial_coil * 1e3, 4)} unit="mΩ" />
-              <Kv k="Top end-winding (stack)" v={num(A.R_top_coil * 1e3, 4)} unit="mΩ" />
-              <Kv k="Bottom end-winding (stack)" v={num(A.R_bottom_coil * 1e3, 4)} unit="mΩ" />
-              <Kv k="One coil, full layer stack" v={num(A.R_coil_single_layer * 1e3, 4)} unit="mΩ" em />
-              <Kv k={`× ${num(A.mult, 2)} coils per phase in series`} v={num(A.R_coil_total, 4)} unit="Ω" />
+              <Kv k="Radial, half slot" v={num(cw.R_half_slot * 1e3, 4)} unit="mΩ" />
+              <Kv k="Radial, per slot" v={num(A.R_radial_coil * 1e3, 4)} unit="mΩ" />
+              <Kv k="Top end winding, per slot" v={num(A.R_top_coil * 1e3, 4)} unit="mΩ" />
+              <Kv k="Bottom end winding, per slot" v={num(A.R_bottom_coil * 1e3, 4)} unit="mΩ" />
+              <Kv k="One coil, one layer" v={num(A.R_coil_single_layer * 1e3, 4)} unit="mΩ" em />
+              <Kv k={`Radial total (× ${num(A.mult, 2)} coils × ${cw.total_layers} layers)`} v={num(A.R_radial_total, 4)} unit="Ω" />
+              <Kv k="Top end-winding total" v={num(A.R_top_total, 4)} unit="Ω" />
+              <Kv k="Bottom end-winding total" v={num(A.R_bottom_total, 4)} unit="Ω" />
               <Kv k="+ via & connection resistance" v={num(A.via_resistance, 4)} unit="Ω" />
               <Kv k="Phase resistance" v={num(A.R_stack_total, 4)} unit="Ω" em />
             </Group>
           </>
         ) : (
           <>
+            <Group title="Geometry">
+              <Kv k="Radial winding Rout / Rin" v={`${num(A.ORS, 2)} / ${num(A.IRS, 2)}`} unit="mm" />
+              <Kv k="Outer radius OR (Rout + end winding)" v={num(A.OR, 2)} unit="mm" />
+              <Kv k="Inner radius IR (Rin − end winding)" v={num(A.IR, 2)} unit="mm" />
+              <Kv k="Coil angle (360 / slots)" v={num(A.theta_coil_deg, 4)} unit="°" />
+              <Kv k="End-winding span" v={num(A.ew_angle_deg, 3)} unit="°" />
+              <Kv k="Per-turn angle" v={num(A.per_turn_angle_deg, 4)} unit="°" />
+              <Kv k="Net trace angle" v={num(A.net_trace_angle_deg, 4)} unit="°" />
+            </Group>
+            <Group title="Traces">
+              <Kv k="Trace width at IR" v={<>{num(A.trace_width_radial_atIR, 4)}{!A.traceOk && <b className="ml-1 text-bad">too narrow</b>}</>} unit="mm" />
+              <Kv k="Min trace width at inner radius" v={num(A.min_trace_IR, 4)} unit="mm" />
+              <Kv k={`Average trace width (r = ${num(A.r_mean_turns, 2)} mm)`} v={num(A.trace_width_radial_avg, 4)} unit="mm" em />
+              <Kv k="Average radial gap" v={num(A.gap_deg * DEG * A.r_mean_turns, 4)} unit="mm" />
+              <Kv k="Top end-winding trace" v={num(A.top_ew_thickness, 4)} unit="mm" />
+              <Kv k="Bottom end-winding trace" v={num(A.bottom_ew_thickness, 4)} unit="mm" />
+            </Group>
             <Group title="Winding">
               <Kv k="Poles (slots / 3)" v={num(S.poles, 2)} />
               <Kv k="Slots per phase (poles / 2)" v={num(ed.sides, 2)} />
@@ -204,9 +259,9 @@ function cards(R: MotorResult): CardDef[] {
     {
       id: 'winding', title: 'Winding & resistance', Icon: CircuitBoard,
       status: windingBad
-        ? { level: 'bad', text: A.traceOk ? `${R.warnings.length} geometry warning${R.warnings.length > 1 ? 's' : ''}` : 'Trace too narrow at IR' }
+        ? { level: 'bad', text: A.traceOk ? `${R.warnings.length} geometry warning${R.warnings.length > 1 ? 's' : ''}` : `Trace too narrow at ${A.cw ? 'IRS' : 'IR'}` }
         : { level: 'ok', text: 'Geometry OK' },
-      stats: [['Phase resistance', `${num(A.R_stack_total, 4)} Ω`], ['Trace at IR', `${num(A.trace_width_radial_atIR, 3)} mm`], ['Turns / phase', num(A.total_turns, 0)]],
+      stats: [['Phase resistance', `${num(A.R_stack_total, 4)} Ω`], [A.cw ? 'Trace at IRS' : 'Trace at IR', `${num(A.trace_width_radial_atIR, 3)} mm`], ['Turns / phase', num(A.total_turns, 0)]],
       body: <WindingBody R={R} />,
     },
     {

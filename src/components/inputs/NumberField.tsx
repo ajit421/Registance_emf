@@ -10,7 +10,7 @@ import { inputText, num } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useMotorStore } from '@/store/motor'
 
-const DEF = values(defaults())
+const DEF = { distributed: values(defaults('distributed')), concentrated: values(defaults('concentrated')) }
 const ROW = 'grid grid-cols-[1fr_8.5rem] items-center gap-x-2 py-1'
 
 function Hint({ children }: { children: string }) {
@@ -24,10 +24,11 @@ function Hint({ children }: { children: string }) {
 
 export function NumberField({ f, value, solved, R }: { f: FieldDef; value: number; solved?: boolean; R: MotorResult }) {
   const setField = useMotorStore(s => s.setField)
+  const winding = useMotorStore(s => s.winding)
   const [draft, setDraft] = useState<string | null>(null)
   const shown = draft ?? (solved ? String(+value.toPrecision(6)) : inputText(value, f))
   const invalid = draft !== null && (draft.trim() === '' || !inRange(f, Number(draft)))
-  const changed = !same(value, DEF[f.key])
+  const changed = !same(value, DEF[winding ?? 'distributed'][f.key])
   const id = `in-${f.key}`
   const hint = f.hint?.(R)
   const range = f.max !== undefined ? `Allowed ${f.min ?? '−∞'} – ${f.max}` : f.min !== undefined ? `Must be ≥ ${f.min}` : 'Enter a number'

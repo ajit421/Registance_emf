@@ -86,25 +86,28 @@ so they pick it up automatically.
 | Poles | slots / 3 | input |
 | Pole pairs | poles / 2 | poles / 2 |
 | Slots (coils) per phase | poles / 2 | slots / 3 |
-| End-winding span | span × coil angle (Advanced) | slot pitch − (2k − 1) × trace pitch for turn k |
+| End-winding span | span × coil angle (Advanced) | slot pitch − 2 × space between slots |
 | Outer and inner end-winding bands | end winding thickness | end winding thickness |
 | Eddy conductor length | Rout − Rin | Rout − Rin |
-| Eddy parallel paths | layers per stack × parallel layer stacks | total layers / layers in series |
+| Eddy parallel paths | layers per stack × parallel layer stacks | 1 (all layers in series) |
 | Winding factor Kw | input | calculated from slots / poles |
 
 ### Concentrated winding resistance
 
-- Every copper layer carries every coil. Each coil is wound around one tooth and fits inside one
-  slot pitch (360° / slots); its 2 × turns radial traces share that pitch, so the trace pitch is
-  slot pitch / (2 × turns). The radial gap also separates neighbouring coils.
-- The coil is a planar spiral: the span between a turn's two legs shrinks by two trace pitches
-  per turn. Lengths are taken along the trace centrelines, and each radial leg uses the exact
-  integral R = ρ · ln(r₂ / r₁) / (angle × thickness).
-- Resistance is worked out for one layer, then scaled to the stack: the layers are wired in
-  series groups ("layers in series per branch") and the branches are tied in parallel, so
-  stack R = one-layer R × (layers in series)² / total layers.
-- Phase resistance = one coil × (slots / 3) coils in series + via & connection resistance.
-- Turns per coil = turns per layer × layers in series; turns per phase = that × slots / 3.
+Follows the Octave reference script for the concentrated (tooth-wound) winding.
+
+- One coil per slot pitch α = 360° / slots. Each half of the coil holds `turns` radial traces in
+  the angle θr = α / 2 − via space (coil centre) − space between slots (coil edge).
+- Trace width is the arc available minus the (turns − 1) gaps, shared by the turns:
+  w(r) = (θr · r − (turns − 1) · gap) / turns. It is linear in r, so the radial winding uses the
+  width at the mid radius.
+- End windings: each turn k runs radially from Rout out to Rk = OR − (k − 1) × pitch (Rin in to
+  Rk = IR + (k − 1) × pitch at the bottom), across the end-winding span α − 2 × space between
+  slots along the trace centreline, and back. These end-winding radial legs use the same width
+  model with their own gap.
+- Every layer is in series: phase resistance = (radial + top + bottom per slot) × slots / 3 ×
+  total layers + via & connection resistance.
+- Turns per coil = turns × total layers; turns per phase = that × slots / 3.
 - The winding factor is calculated from the slot / pole combination (star of slots, double-layer
   tooth coils) and used for the back-EMF.
 
@@ -116,8 +119,9 @@ so they pick it up automatically.
   original engine (`__fixtures__/reference-results.json`). Every value must match to within
   1e-9 relative error. A change of even the fourth decimal of a constant fails this test.
 - **Derived inputs:** the relations above, for both windings.
-- **Concentrated winding:** worked examples checked against an independent reference
-  translation of the model, coil fit, and the winding factor (12/10 → 0.933, 12/8 → 0.866).
+- **Concentrated winding:** the Octave script's own inputs and a second design, checked against
+  a line-by-line translation of the script; the slot-pitch split, warnings, and the winding
+  factor (12/10 → 0.933, 12/8 → 0.866).
 - **Default design:** known headline numbers.
 - **Import/export:** round trips through JSON, TXT, CSV and shareable links (including the
   winding choice), older exports, and input sanitising.

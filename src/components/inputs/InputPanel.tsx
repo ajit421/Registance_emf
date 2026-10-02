@@ -82,7 +82,7 @@ function Section({ g, n, R, query }: { g: SectionDef; n: number; R: MotorResult;
 export function InputPanel() {
   const { params, winding, R } = useMotor()
   const [q, setQ] = useState('')
-  const n = changedKeys(params).filter(k => usedBy(FIELDS[k], winding)).length
+  const n = changedKeys(params, winding).filter(k => usedBy(FIELDS[k], winding)).length
   const query = q.trim().toLowerCase()
 
   return (

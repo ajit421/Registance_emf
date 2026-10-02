@@ -3,14 +3,12 @@ import type { MotorResult } from './compute'
 import { reportText } from './report'
 import { FIELDS, SCHEMA, defaults, inRange, isSpecSolve, isWinding, values, type MotorParams, type Winding } from './schema'
 
-const DEF = defaults()
-
 const toNumber = (v: unknown) =>
   typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN
 
-/** Keep only in-range numbers on known keys; everything else falls back to defaults. */
-export function sanitize(obj: unknown): MotorParams {
-  const out: MotorParams = { ...DEF }
+/** Keep only in-range numbers on known keys; everything else falls back to the winding's defaults. */
+export function sanitize(obj: unknown, winding: Winding | null = 'distributed'): MotorParams {
+  const out: MotorParams = defaults(winding)
   if (obj && typeof obj === 'object') {
     const src: Record<string, unknown> = { ...obj }
     // exports from before the single end-winding thickness input
@@ -37,8 +35,11 @@ export const inputsObject = (p: MotorParams, winding: Winding | null) => ({ wind
 
 export const same = (a: number, b: number) => Math.abs(a - b) <= 1e-12 * Math.max(1, Math.abs(a), Math.abs(b))
 
-export const changedKeys = (p: MotorParams) =>
-  Object.keys(FIELDS).filter(k => !same(values(p)[k], values(DEF)[k]))
+/** Inputs that differ from the winding's defaults. */
+export const changedKeys = (p: MotorParams, winding: Winding | null = 'distributed') => {
+  const def = values(defaults(winding))
+  return Object.keys(FIELDS).filter(k => !same(values(p)[k], def[k]))
+}
 
 /* shareable-link payload: #p=<urlencoded base64 of urlencoded JSON> (compatible with the original app) */
 export const encodeLink = (obj: object) => encodeURIComponent(btoa(encodeURIComponent(JSON.stringify(obj))))
@@ -47,8 +48,9 @@ export const decodeLink = (s: string): unknown => JSON.parse(decodeURIComponent(
 export function shareDiff(p: MotorParams, winding: Winding | null): Record<string, unknown> {
   const diff: Record<string, unknown> = {}
   if (winding) diff.winding = winding
-  changedKeys(p).forEach(k => { diff[k] = p[k] })
-  if (p.spec_solve !== DEF.spec_solve) diff.spec_solve = p.spec_solve
+  // a link only holds the changes; it is read back against the same winding's defaults
+  changedKeys(p, winding).forEach(k => { diff[k] = p[k] })
+  if (p.spec_solve !== defaults(winding).spec_solve) diff.spec_solve = p.spec_solve
   return diff
 }
 
@@ -81,9 +83,12 @@ export function toCSV(p: MotorParams, winding: Winding | null, R: MotorResult): 
   ]
   if (A.cw) out.push(
     ['A', 'Slots per pole Nsp', A.cw.Nsp, ''], ['A', 'Coils per phase', A.mult, ''], ['A', 'Winding factor Kw', A.cw.kw, ''],
-    ['A', 'Trace pitch', A.cw.pitch_deg, 'deg'], ['A', 'Turns per coil', A.cw.turns_per_coil, ''],
-    ['A', 'Parallel branches', A.cw.branches, ''], ['A', 'Stack factor', A.cw.layer_factor, ''],
-    ['A', 'One coil, full layer stack', A.R_coil_single_layer, 'Ohm'],
+    ['A', 'Radial trace angle per half coil', A.cw.radial_angle_deg, 'deg'], ['A', 'End-winding angle span', A.ew_angle_deg, 'deg'],
+    ['A', 'Radial trace width at IRS', A.cw.w_IRS, 'mm'], ['A', 'Radial trace width at ORS', A.cw.w_ORS, 'mm'],
+    ['A', 'Turns per coil', A.cw.turns_per_coil, ''],
+    ['A', 'Radial resistance, half slot', A.cw.R_half_slot, 'Ohm'], ['A', 'Radial resistance, per slot', A.R_radial_coil, 'Ohm'],
+    ['A', 'Top end-winding resistance, per slot', A.R_top_coil, 'Ohm'], ['A', 'Bottom end-winding resistance, per slot', A.R_bottom_coil, 'Ohm'],
+    ['A', 'One coil, one layer', A.R_coil_single_layer, 'Ohm'],
   )
   out.forEach(r => rows.push([`result ${r[0]}`, r[1], r[2], r[3]]))
   return rows.map(r => r.map(v => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v)).join(',')).join('\n')

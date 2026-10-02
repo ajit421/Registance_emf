@@ -17,6 +17,8 @@ export interface FieldDef {
   label: string
   unit: string
   def: number
+  /** default for a concentrated winding, when it differs from `def` */
+  defCw?: number
   step: number
   min?: number
   max?: number
@@ -58,8 +60,8 @@ export const SCHEMA: SectionDef[] = [
       { key: 'spec_P', label: 'Output power', unit: 'W', def: 22.5, step: 0.5, min: 0 },
       { key: 'spec_rpm', label: 'Speed', unit: 'rpm', def: 350, step: 10, min: 0 },
       { key: 'spec_T', label: 'Torque', unit: 'N·m', def: 22.5 / (2 * Math.PI * 350 / 60), step: 0.01, min: 0 },
-      { key: 'spec_slots', label: 'Slots', unit: '', def: 90, step: 3, int: true, min: 1 },
-      { key: 'spec_poles', label: 'Poles', unit: '', def: 30, step: 2, int: true, min: 2, windings: ['concentrated'] },
+      { key: 'spec_slots', label: 'Slots', unit: '', def: 90, defCw: 12, step: 3, int: true, min: 1 },
+      { key: 'spec_poles', label: 'Poles', unit: '', def: 30, defCw: 10, step: 2, int: true, min: 2, windings: ['concentrated'] },
     ],
     computed: [
       { key: 'poles', label: 'Poles (slots / 3)', unit: '', get: r => r.S.poles, d: 2, windings: ['distributed'] },
@@ -71,6 +73,11 @@ export const SCHEMA: SectionDef[] = [
       { key: 'ORS', label: 'Radial winding Rout', unit: 'mm', def: 70, step: 0.5, min: 0 },
       { key: 'IRS', label: 'Radial winding Rin', unit: 'mm', def: 50, step: 0.5, min: 0 },
       { key: 'ew_band', label: 'End winding thickness', unit: 'mm', def: 5, step: 0.1, min: 0 },
+      { key: 'cw_via_space', label: 'Via space at coil centre (per half)', unit: '°', def: 1, step: 0.1, min: 0, windings: ['concentrated'] },
+      {
+        key: 'cw_slot_space', label: 'Space between slots (per side)', unit: '°', def: 0.5, step: 0.1, min: 0, windings: ['concentrated'],
+        hint: r => r.A.cw ? `Radial trace angle ${short(r.A.cw.radial_angle_deg)}° per half coil · end-winding span ${short(r.A.ew_angle_deg)}°` : '',
+      },
     ],
   },
   {
@@ -78,26 +85,26 @@ export const SCHEMA: SectionDef[] = [
     fields: [
       { key: 'turns', label: 'Turns per slot / layer', unit: '', def: 5, step: 1, int: true, min: 1, max: 500 },
       {
-        key: 'gap_radial', label: 'Trace gap, radial side', unit: 'mm', def: 0.3, step: 0.05, min: 0,
-        // the gap is set at IR and is angular, so it widens with radius
-        hint: r => `Average gap ${num(r.A.gap_deg * DEG * r.A.r_mean_turns, 3)} mm · average trace width ${num(r.A.trace_width_radial_avg, 3)} mm`,
+        key: 'gap_radial', label: 'Trace gap, radial side', unit: 'mm', def: 0.3, defCw: 0.2, step: 0.05, min: 0,
+        // distributed: the gap is set at IR and is angular, so it widens with radius; concentrated: a fixed gap
+        hint: r => r.A.cw
+          ? `Trace width ${num(r.A.cw.w_IRS, 3)} mm at IRS → ${num(r.A.cw.w_ORS, 3)} mm at ORS · average ${num(r.A.trace_width_radial_avg, 3)} mm`
+          : `Average gap ${num(r.A.gap_deg * DEG * r.A.r_mean_turns, 3)} mm · average trace width ${num(r.A.trace_width_radial_avg, 3)} mm`,
       },
       { key: 'gap_end', label: 'Trace gap, end side', unit: 'mm', def: 0.2, step: 0.05, min: 0 },
+      { key: 'cw_gap_radial_ew', label: 'Trace gap, radial legs in end winding', unit: 'mm', def: 0.9, step: 0.05, min: 0, windings: ['concentrated'] },
       { key: 'series_stacks', label: 'Series layer stacks', unit: '', def: 5, step: 1, int: true, min: 1, windings: ['distributed'] },
       {
         key: 'total_layer_stacks', label: 'Parallel layer stacks', unit: '', def: 1, step: 1, int: true, min: 1, windings: ['distributed'],
         hint: r => `Total layers = ${r.A.series_stacks} series × ${r.A.layer_stack} per stack × ${r.A.total_layer_stacks} parallel = ${totalLayers(r)}`,
       },
-      { key: 'cw_total_layers', label: 'Total layers', unit: '', def: 18, step: 1, int: true, min: 1, windings: ['concentrated'] },
       {
-        key: 'cw_series_group', label: 'Layers in series per branch', unit: '', def: 3, step: 1, int: true, min: 1, windings: ['concentrated'],
-        hint: r => r.A.cw
-          ? `${short(r.A.cw.branches)} parallel branches (${r.A.cw.total_layers} / ${r.A.cw.series_group_size}) · stack factor ${short(r.A.cw.layer_factor)} · ${short(r.A.cw.turns_per_coil)} turns per coil`
-          : '',
+        key: 'cw_total_layers', label: 'Total layers (all in series)', unit: '', def: 1, step: 1, int: true, min: 1, windings: ['concentrated'],
+        hint: r => r.A.cw ? `${short(r.A.cw.turns_per_coil)} turns per coil · ${short(r.A.total_turns)} turns per phase` : '',
       },
       { key: 'min_trace_IR', label: 'Min trace width at inner radius', unit: 'mm', def: 0.2, step: 0.01, min: 0 },
-      { key: 'copper_thickness', label: 'Copper thickness', unit: 'µm', def: 140, step: 5, min: 0 },
-      { key: 'rho', label: 'Copper resistivity ρ', unit: 'Ω·m', def: 1.72e-8, step: 1e-10, sci: true, min: 0 },
+      { key: 'copper_thickness', label: 'Copper thickness', unit: 'µm', def: 140, defCw: 210, step: 5, min: 0 },
+      { key: 'rho', label: 'Copper resistivity ρ', unit: 'Ω·m', def: 1.72e-8, defCw: 1.92e-8, step: 1e-10, sci: true, min: 0 },
       { key: 'via_resistance', label: 'Via resistance', unit: 'Ω', def: 0.3, step: 0.01, min: 0, windings: ['distributed'] },
       { key: 'cw_via_resistance', label: 'Via & connection resistance', unit: 'Ω', def: 0, step: 0.001, min: 0, windings: ['concentrated'] },
     ],
@@ -117,7 +124,7 @@ export const SCHEMA: SectionDef[] = [
     id: 'M', title: 'Magnet dimensions',
     fields: [
       { key: 'mag_len', label: 'Magnet length', unit: 'mm', def: 20, step: 0.5, min: 0 },
-      { key: 'mag_width', label: 'Magnet width', unit: 'mm', def: 10, step: 0.1, min: 0 },
+      { key: 'mag_width', label: 'Magnet width', unit: 'mm', def: 10, defCw: 30.5, step: 0.1, min: 0 },
     ],
   },
   {
@@ -168,8 +175,20 @@ export const usedBy = (x: { windings?: Winding[] }, w: Winding | null) => !x.win
 export const inRange = (f: FieldDef, v: number) =>
   Number.isFinite(v) && (f.min === undefined || v >= f.min) && (f.max === undefined || v <= f.max)
 
-export function defaults(): MotorParams {
+/** Default inputs. The concentrated defaults follow the Octave reference design (12 slots / 10 poles). */
+export function defaults(winding: Winding | null = 'distributed'): MotorParams {
   const d: MotorParams = { spec_solve: 'T' }
-  SCHEMA.forEach(g => g.fields.forEach(f => { d[f.key] = f.def }))
+  SCHEMA.forEach(g => g.fields.forEach(f => { d[f.key] = winding === 'concentrated' && f.defCw !== undefined ? f.defCw : f.def }))
   return d
+}
+
+/** Inputs still at the old winding's default move to the new winding's default; edited values are kept. */
+export function followDefaults(p: MotorParams, from: Winding | null, to: Winding | null): MotorParams {
+  const a = values(defaults(from)), b = values(defaults(to)), v = values(p)
+  const next: MotorParams = { ...p }
+  SCHEMA.forEach(g => g.fields.forEach(f => {
+    const k = f.key
+    if (f.defCw !== undefined && Math.abs(v[k] - a[k]) <= 1e-12 * Math.max(1, Math.abs(a[k]))) next[k] = b[k]
+  }))
+  return next
 }

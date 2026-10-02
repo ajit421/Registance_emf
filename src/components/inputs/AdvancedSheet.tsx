@@ -51,13 +51,11 @@ export function AdvancedSheet() {
                 <Kv k="Winding factor Kw (star of slots)" v={num(cw.kw, 4)} />
                 <Kv k="Coils per phase = slots / 3" v={num(A.mult, 2)} />
                 <Kv k="End-winding bands (outer, inner) = end winding thickness" v={`${num(A.OR - A.ORS, 2)}, ${num(A.IRS - A.IR, 2)}`} unit="mm" />
-                <Kv k="Trace pitch = (360 / slots) / (2 × turns)" v={num(cw.pitch_deg, 4)} unit="°" />
-                <Kv k="Outer turn span = 360 / slots − trace pitch" v={num(A.ew_angle_deg, 3)} unit="°" />
-                <Kv k="Parallel branches = total layers / layers in series" v={num(cw.branches, 2)} />
-                <Kv k="Stack factor = (layers in series)² / total layers" v={num(cw.layer_factor, 4)} />
-                <Kv k="Turns per coil = turns × layers in series" v={num(cw.turns_per_coil, 0)} />
+                <Kv k="Radial trace angle = 360 / slots / 2 − via space − slot space" v={num(cw.radial_angle_deg, 4)} unit="°" />
+                <Kv k="End-winding span = 360 / slots − 2 × slot space" v={num(A.ew_angle_deg, 3)} unit="°" />
+                <Kv k="Turns per coil = turns × total layers" v={num(cw.turns_per_coil, 0)} />
                 <Kv k="Conductor length = Rout − Rin" v={num(ed.len, 2)} unit="mm" />
-                <Kv k="Parallel paths = parallel branches" v={num(ed.paths, 2)} />
+                <Kv k="Parallel paths = 1 (all layers in series)" v={num(ed.paths, 0)} />
               </KvList>
             ) : (
               <KvList>

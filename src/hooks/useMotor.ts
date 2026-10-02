@@ -6,7 +6,7 @@ import { useMotorStore } from '@/store/motor'
 /** Results for the default design of each winding, used for the "vs defaults" deltas. */
 export const baselines: Record<Winding, ReturnType<typeof evaluate>> = {
   distributed: evaluate(defaults(), 'distributed'),
-  concentrated: evaluate(defaults(), 'concentrated'),
+  concentrated: evaluate(defaults('concentrated'), 'concentrated'),
 }
 
 /** Current inputs, the chosen winding configuration and the derived results. */

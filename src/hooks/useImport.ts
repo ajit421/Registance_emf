@@ -8,7 +8,8 @@ export function useApplyImport() {
   return useCallback((raw: string, source?: string) => {
     const res = parseImport(raw)
     const { params: prev, winding: prevWinding, replaceAll } = useMotorStore.getState()
-    replaceAll(sanitize(res.obj), readWinding(res.obj))
+    const winding = readWinding(res.obj)
+    replaceAll(sanitize(res.obj, winding), winding)
     const what = res.partial ? `${res.n} inputs read from report text (the rest set to defaults)` : `${res.n} inputs imported`
     toast.success(`${res.kind}${source ? ` “${source}”` : ''}: ${what}`, {
       action: { label: 'Undo', onClick: () => replaceAll(prev, prevWinding) },

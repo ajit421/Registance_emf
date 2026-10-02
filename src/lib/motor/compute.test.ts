@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import { designErrors } from './checks'
 import { compute } from './compute'
 import { derive, deriveConcentrated, evaluate } from './derive'
 import { inputsObject, parseImport, readWinding, reportExport, sanitize, shareDiff, encodeLink, toCSV } from './io'
 import { reportText } from './report'
-import { defaults, type MotorParams } from './schema'
+import { defaults, followDefaults, type MotorParams } from './schema'
 import reference from './__fixtures__/reference-results.json'
 
 /** The original default design, which had pole pairs 9 as a separate input. */
@@ -35,46 +36,75 @@ describe('derived inputs (distributed winding)', () => {
   })
 })
 
-/* Concentrated winding: values from an independent reference translation of the model
- * (the same steps as the Octave cross-check script). */
+/* Concentrated winding: values from a line-by-line translation of the Octave reference script
+ * (every layer in series, end-winding radial legs with their own gap). */
 describe('concentrated winding', () => {
   const close = (a: number, b: number) => expect(Math.abs(a - b)).toBeLessThanOrEqual(1e-12 * Math.max(1, Math.abs(b)))
+  // the inputs of the Octave script
   const run = (over: Partial<Record<string, number>>) => evaluate({
-    ...defaults(), spec_slots: 12, spec_poles: 10, ORS: 70, IRS: 50, ew_band: 5, turns: 5, gap_radial: 0.3, gap_end: 0.2,
-    copper_thickness: 210, rho: 1.92e-8, cw_total_layers: 18, cw_series_group: 3, cw_via_resistance: 0, ...over,
+    ...defaults(), spec_slots: 12, spec_poles: 10, ORS: 70, IRS: 50, ew_band: 5, turns: 5, gap_radial: 0.2, gap_end: 0.2,
+    cw_gap_radial_ew: 0.9, cw_via_space: 1, cw_slot_space: 0.5,
+    copper_thickness: 210, rho: 1.92e-8, cw_total_layers: 1, cw_via_resistance: 0, ...over,
   } as MotorParams, 'concentrated')
 
-  it('12 slots / 10 poles, 18 layers in series groups of 3', () => {
+  it('12 slots / 10 poles, one layer (the Octave script inputs)', () => {
     const { A, warnings } = run({})
     expect(warnings).toEqual([])
-    expect(A.cw).toMatchObject({ Nsp: 1.2, branches: 6, layer_factor: 0.5, pitch_deg: 3, turns_per_coil: 15 })
-    close(A.net_trace_angle_deg, 2.618028136579451)
-    ;[0.0009937149185407163, 0.000923116700615819, 0.0008530786655155458, 0.000783551747020405, 0.0007144888283286306]
-      .forEach((v, i) => close(A.perTurn[i].R_parallel, v))
-    close(A.R_radial_coil, 0.004267950860021116)
-    close(A.R_top_coil, 0.005490307161273591)
-    close(A.R_bottom_coil, 0.003485671848982961)
-    close(A.R_coil_single_layer, 0.01324392987027767)
-    close(A.R_stack_total, 0.05297571948111068)
-    close(A.trace_width_radial_avg, 2.7415926535897928)
-    expect(A.total_turns).toBe(60)
+    expect(A.cw).toMatchObject({ Nsp: 1.2, total_layers: 1, turns_per_coil: 5 })
+    close(A.cw!.radial_angle_deg, 13.5)
+    close(A.ew_angle_deg, 29)
+    close(A.cw!.w_IRS, 2.1961944901923447)
+    close(A.cw!.w_ORS, 3.1386722862692826)
+    close(A.trace_width_radial_avg, 2.6674333882308137)
+    close(A.top_ew_thickness, 0.8)
+    ;[2.6964820107789, 2.6729200658769767, 2.6493581209750534, 2.6257961760731297, 2.6022342311712063]
+      .forEach((v, i) => close(A.cw!.perTurnEw[i].top_leg_w, v))
+    ;[1.5183847656827276, 1.5419467105846512, 1.5655086554865747, 1.589070600388498, 1.6126325452904215]
+      .forEach((v, i) => close(A.cw!.perTurnEw[i].bottom_leg_w, v))
+    ;[0.004654317903608238, 0.004531050589981563, 0.004406619619188269, 0.004280993665842602, 0.004154140270015256]
+      .forEach((v, i) => close(A.perTurn[i].R_top, v))
+    close(A.cw!.R_half_slot, 0.0034275859270552138)
+    close(A.R_radial_coil, 0.0068551718541104275)
+    close(A.R_top_coil, 0.02202712204863593)
+    close(A.R_bottom_coil, 0.015479754511612296)
+    close(A.R_radial_total, 0.02742068741644171)
+    close(A.R_top_total, 0.08810848819454371)
+    close(A.R_bottom_total, 0.061919018046449184)
+    close(A.R_stack_total, 0.1774481936574346)
+    expect(A.total_turns).toBe(20)
     close(A.cw!.kw, 0.9330127018922195)
   })
 
-  it('36 slots / 30 poles, 12 layers in groups of 4, with via resistance', () => {
-    const { A } = run({ spec_slots: 36, spec_poles: 30, cw_total_layers: 12, cw_series_group: 4, turns: 4, cw_via_resistance: 0.01 })
-    close(A.R_radial_coil, 0.027460758013662448)
-    close(A.R_top_coil, 0.002973882738890219)
-    close(A.R_bottom_coil, 0.0018892931904762923)
-    close(A.R_stack_total, 0.3978872073163475)
+  it('36 slots / 30 poles, 4 layers in series, with via resistance', () => {
+    const { A, warnings } = run({
+      spec_slots: 36, spec_poles: 30, ORS: 80, IRS: 55, ew_band: 4, turns: 4, gap_radial: 0.15, gap_end: 0.15,
+      cw_gap_radial_ew: 0.3, cw_via_space: 0.6, cw_slot_space: 0.3, copper_thickness: 105, rho: 1.72e-8,
+      cw_total_layers: 4, cw_via_resistance: 0.01,
+    })
+    expect(warnings).toEqual([])
+    close(A.cw!.w_IRS, 0.8714293658118033)
+    close(A.R_radial_coil, 0.029918190446746224)
+    close(A.R_top_coil, 0.013037195158392502)
+    close(A.R_bottom_coil, 0.011169145704215839)
+    close(A.R_radial_total, 1.4360731414438188)
+    close(A.R_stack_total, 2.5979775028490195 + 0.01)
     expect(A.total_turns).toBe(192)
   })
 
-  it('fits each coil inside one slot pitch, legs two trace pitches apart per turn', () => {
+  it('splits the slot pitch into via space, radial traces and slot space', () => {
     const { A } = run({})
-    const outerEdge = A.perTurn[0].ew_angle_deg / 2 + A.net_trace_angle_deg / 2
-    close(outerEdge + A.gap_deg / 2, A.theta_coil_deg / 2)
-    close(A.perTurn[0].ew_angle_deg - A.perTurn[1].ew_angle_deg, 2 * A.per_turn_angle_deg)
+    close(A.cw!.via_space_deg + A.cw!.radial_angle_deg + A.cw!.slot_space_deg, A.theta_coil_deg / 2)
+    close(A.ew_angle_deg, A.theta_coil_deg - 2 * A.cw!.slot_space_deg)
+    // turns traces + (turns − 1) gaps fill the radial trace angle at every radius
+    const fill = (r: number, w: number) => A.turns * w + (A.turns - 1) * 0.2 - A.cw!.radial_angle_deg * Math.PI / 180 * r
+    close(fill(A.IRS, A.cw!.w_IRS), 0)
+    close(fill(A.ORS, A.cw!.w_ORS), 0)
+  })
+
+  it('warns when the traces do not fit', () => {
+    expect(run({ cw_via_space: 10, cw_slot_space: 6 }).warnings.join(' ')).toMatch(/Radial trace angle ≤ 0/)
+    expect(run({ gap_radial: 3 }).warnings.join(' ')).toMatch(/Radial trace width at IRS ≤ 0/)
+    expect(run({ cw_gap_radial_ew: 3 }).warnings.join(' ')).toMatch(/End-winding radial leg width ≤ 0/)
   })
 
   it('calculates the winding factor from the slot / pole combination', () => {
@@ -87,16 +117,55 @@ describe('concentrated winding', () => {
     const d = deriveConcentrated({ ...defaults(), spec_slots: 12, spec_poles: 10 })
     expect(d.emf_pp).toBe(5)
     expect(d.slots_per_phase).toBe(4)
-    expect(d.ed_paths).toBe(6)
-    const R = run({})
+    // every layer is in series and already counted in the turns per phase
+    expect(d.ed_paths).toBe(1)
+    const R = run({ cw_total_layers: 3 })
     expect(R.emf.R).toBe(R.A.R_stack_total)
     expect(R.emf.Nph).toBe(60)
+    expect(R.ed.tw).toBe(R.A.trace_width_radial_avg)
     expect(R.ed.f).toBeCloseTo(350 * 10 / 120, 12)
   })
 
-  it('warns when the layers or slots do not divide evenly', () => {
-    expect(run({ cw_total_layers: 10 }).warnings.join(' ')).toMatch(/not evenly divisible/)
+  it('scales the phase resistance with the number of layers in series', () => {
+    close(run({ cw_total_layers: 6 }).A.R_stack_total, 6 * run({}).A.R_stack_total)
+  })
+
+  it('warns when the slots do not divide evenly', () => {
     expect(run({ spec_slots: 13 }).warnings.join(' ')).toMatch(/not divisible by 3/)
+  })
+})
+
+describe('defaults per winding', () => {
+  it('the concentrated defaults are a valid design that passes every design rule', () => {
+    const R = evaluate(defaults('concentrated'), 'concentrated')
+    expect(R.warnings).toEqual([])
+    expect(designErrors(R).filter(c => c.level !== 'ok')).toEqual([])
+    expect(R.S.slots).toBe(12)
+    expect(R.S.poles).toBe(10)
+    expect(R.A.R_stack_total).toBeGreaterThan(0)
+  })
+
+  it('switching winding moves inputs at their default and keeps edited ones', () => {
+    const p = followDefaults({ ...defaults('distributed'), copper_thickness: 175 }, 'distributed', 'concentrated')
+    expect(p.spec_slots).toBe(12)
+    expect(p.gap_radial).toBe(0.2)
+    expect(p.copper_thickness).toBe(175)
+    expect(followDefaults(p, 'concentrated', 'distributed').spec_slots).toBe(90)
+  })
+
+  it('reads imports and links against the winding they were made with', () => {
+    expect(sanitize({ turns: 4 }, 'concentrated').spec_slots).toBe(12)
+    const p = { ...defaults('concentrated'), turns: 7 }
+    expect(shareDiff(p, 'concentrated')).toEqual({ winding: 'concentrated', turns: 7 })
+  })
+
+  it('a concentrated trace with no width left gives no resistance instead of a negative one', () => {
+    const R = evaluate({ ...defaults('concentrated'), spec_slots: 90, spec_poles: 30 }, 'concentrated')
+    expect(R.A.cw!.w_IRS).toBeLessThan(0)
+    expect(Number.isNaN(R.A.R_stack_total)).toBe(true)
+    expect(Number.isNaN(R.emf.eta)).toBe(true)
+    expect(Number.isNaN(R.ed.P)).toBe(true)
+    expect(R.warnings.join(' ')).toMatch(/Radial trace width at IRS ≤ 0/)
   })
 })
 

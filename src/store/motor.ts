@@ -3,9 +3,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { resolveSpec } from '@/lib/motor/compute'
 import { decodeLink, readWinding, same, sanitize } from '@/lib/motor/io'
-import { FIELDS, SCHEMA, SPEC_KEYS, SPEC_OF_KEY, defaults, isWinding, values, type MotorParams, type SectionId, type SpecSolve, type Winding } from '@/lib/motor/schema'
-
-const DEF = defaults()
+import { FIELDS, SCHEMA, SPEC_KEYS, SPEC_OF_KEY, defaults, followDefaults, isWinding, values, type MotorParams, type SectionId, type SpecSolve, type Winding } from '@/lib/motor/schema'
 
 /** Store the solved spec value so switching the solved quantity keeps a consistent set. */
 function normalize(p: MotorParams): MotorParams {
@@ -32,7 +30,7 @@ interface MotorState {
 export const useMotorStore = create<MotorState>()(
   persist(
     (set, get) => ({
-      params: DEF,
+      params: defaults(),
       winding: null,
       lastSpec: null,
 
@@ -60,30 +58,45 @@ export const useMotorStore = create<MotorState>()(
 
       setSolve(s) { set({ params: normalize({ ...get().params, spec_solve: s }), lastSpec: null }) },
 
-      setWinding(winding) { set({ winding }) },
+      // inputs still at their default follow the new winding's defaults
+      setWinding(winding) {
+        const { params, winding: prev } = get()
+        if (winding === prev) return
+        set({ winding, params: normalize(followDefaults(params, prev, winding)) })
+      },
 
       resetSection(id) {
         const g = SCHEMA.find(x => x.id === id)
         if (!g) return
+        const def = defaults(get().winding)
         const next: MotorParams = { ...get().params }
-        g.fields.forEach(f => { next[f.key] = DEF[f.key] })
-        if (id === 'S') next.spec_solve = DEF.spec_solve
+        g.fields.forEach(f => { next[f.key] = def[f.key] })
+        if (id === 'S') next.spec_solve = def.spec_solve
         if (id === 'M') next.mag_len = values(next).ORS - values(next).IRS
         set({ params: normalize(next), lastSpec: null })
       },
 
       replaceAll(p, winding) {
-        set({ params: normalize(sanitize(p)), lastSpec: null, ...(winding !== undefined && { winding }) })
+        const w = winding !== undefined ? winding : get().winding
+        set({ params: normalize(sanitize(p, w)), lastSpec: null, winding: w })
       },
     }),
     {
       name: 'pcbmotor.params.v2',
+      version: 1,
+      // v0: concentrated designs saved before that winding had its own defaults still hold the distributed ones
+      migrate: (persisted, version) => {
+        const p = persisted as { params?: unknown; winding?: unknown } | undefined
+        if (version < 1 && p?.winding === 'concentrated' && p.params)
+          return { ...p, params: followDefaults(sanitize(p.params), 'distributed', 'concentrated') }
+        return p
+      },
       partialize: s => ({ params: s.params, winding: s.winding }),
       merge: (persisted, current) => {
         const p = persisted as { params?: unknown; winding?: unknown } | undefined
         // inputs saved before the winding choice existed were distributed designs
         const winding = isWinding(p?.winding) ? p.winding : p?.params ? 'distributed' : null
-        return { ...current, params: sanitize(p?.params), winding }
+        return { ...current, params: normalize(sanitize(p?.params, winding)), winding }
       },
       onRehydrateStorage: () => state => {
         // a shareable link (#p=…) wins over stored inputs, then is removed from the address bar
@@ -91,7 +104,8 @@ export const useMotorStore = create<MotorState>()(
         if (!m || !state) return
         try {
           const obj = decodeLink(m[1])
-          state.replaceAll(sanitize(obj), readWinding(obj))
+          const w = readWinding(obj)
+          state.replaceAll(sanitize(obj, w), w)
         } catch { /* ignore damaged link */ }
         history.replaceState(null, '', location.pathname + location.search)
       },

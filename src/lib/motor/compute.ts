@@ -42,19 +42,36 @@ export interface Turn {
   R_bottom: number
 }
 
+/** End-winding detail of one turn of a concentrated coil (one slot, one layer). Lengths in mm, widths in mm. */
+export interface ConcentratedTurn {
+  k: number
+  /** top: radial leg ORS → top_r on each side, then the arc across the end-winding span */
+  top_r: number; top_leg_len: number; top_leg_w: number; top_arc: number; R_top_legs: number; R_top_arc: number
+  /** bottom: radial leg IRS → bottom_r on each side, then the arc */
+  bottom_r: number; bottom_leg_len: number; bottom_leg_w: number; bottom_arc: number; R_bottom_legs: number; R_bottom_arc: number
+}
+
 /** Extra values of a concentrated (tooth-wound) winding. */
 export interface ConcentratedInfo {
   poles: number
   /** slots per pole */
   Nsp: number
+  /** every layer is in series */
   total_layers: number
-  series_group_size: number
-  branches: number
-  /** series_group_size² / total_layers: one-layer resistance × this = stack resistance */
-  layer_factor: number
-  /** angular pitch of one radial trace = slot pitch / (2 × turns) [deg] */
-  pitch_deg: number
-  /** turns in series per coil = turns per layer × layers in series */
+  /** angle holding the radial traces of one half coil = slot pitch / 2 − via space − slot space [deg] */
+  radial_angle_deg: number
+  via_space_deg: number
+  slot_space_deg: number
+  /** gap between neighbouring radial traces, in the radial winding and inside the end-winding bands [mm] */
+  gap_radial: number
+  gap_radial_ew: number
+  /** radial trace width at IRS and ORS [mm] */
+  w_IRS: number
+  w_ORS: number
+  /** the turns radial traces of one half coil, in series, one layer */
+  R_half_slot: number
+  perTurnEw: ConcentratedTurn[]
+  /** turns in series per coil = turns per slot × total layers */
   turns_per_coil: number
   /** winding factor (pitch × distribution), NaN for an unbalanced slot / pole combination */
   kw: number
